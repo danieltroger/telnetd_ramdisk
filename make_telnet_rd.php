@@ -36,6 +36,7 @@ verbinfo("checking for .shsh2 file");
 if(!file_exists(SHSH2)){
   die(".shsh2 file doesn't exist or isn't readable" . PHP_EOL);
 }
+define("SHSH2_ABS",realpath(SHSH2)); // I shouldn't have started using constants lol
 
 verbinfo("Checking for dependencies");
 if(!is_installed("diskutil") || !is_installed("hdiutil") || !is_installed("unzip") || !is_installed("plutil")){
@@ -102,15 +103,10 @@ for($i = 0; $i<sizeof($sizes);$i++){
   verbinfo("trying to convert {$maybe} to .dmg");
   $try = execute("img4 -i {$maybe} -o ramdisk.dmg 2>&1");
   if($try === "rdsk\n"){
-    verbinfo("trying to mount it");
-    $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1");
-    $mount_point = explode(" ",preg_replace('/\s+/', ' ', $try_mount));
-    unset($mount_point[0]);
-    unset($mount_point[sizeof($mount_point)]);
-    $mount_point = implode(" ",$mount_point);
+    $mount_point = mount_rd();
     verbinfo("Mounted potential ramdisk at \"{$mount_point}\"");
     verbinfo("Unmounting again because we don't need it right now");
-    execute("diskutil unmount \"{$mount_point}\" 2>&1");
+    unmount($mount_point);
     if(strpos($mount_point,"CustomerRamDisk") !== false){
       info("Found ramdisk to be {$maybe}");
       define("RAMDISK",$maybe);
@@ -146,7 +142,7 @@ if(!file_exists("kcache.patched")){
   verbinfo("kcache.patched already exists, skipping step");
 }
 if(!file_exists("IM4M")){
-  execute("img4tool -e -s ../*.shsh2 -m IM4M");
+  execute("img4tool -e -s " . SHSH2_ABS . " -m IM4M");
 } else {
   verbinfo("IM4M already exists, skipping conversion of .shsh2 into it");
 }
@@ -213,11 +209,60 @@ if(!file_exists("devicetree.img4")){
 }
 
 
-info("We now have everything needed to boot the ramdisk, we know what our ramdisk is but we yet have to configure it and populate it with utilities and telnet. Let's get to work!");
+
+info("We now have everything needed to boot the ramdisk, just need to customize the ramdisk!");
+
+if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y, otherwise n: ")) {
+  info("Not adding utilities, just signing");
+  execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
+}
+else {
+  info("Doing magic");
+  $mountpoint = mount_rd();
+  info("Mounted RAMdisk at {$mountpoint}");
+  ensure_restored_external_c();
+  execute("xcrun -sdk iphoneos clang -arch arm64 restored_external.c -o restored_external");
+  execute("ldid2 -S restored_external");
+  verbinfo("compiled restored_external, renaming old one");
+  rename($mountpoint . "/usr/local/bin/restored_external",$mountpoint . "/usr/local/bin/restored_external_original");
+  verbinfo("adding new one");
+  copy("restored_external",$mountpoint . "/usr/local/bin/restored_external");
+  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin
+  verbinfo("Downloading executables");
+  if(!is_dir("debs")){mkdir("debs");}
+  chdir("debs");
+  $apt_download_output = "'https://apt.bingner.com/debs/1443.00/coreutils-bin_8.31-1_iphoneos-arm.deb' coreutils-bin_8.31-1_iphoneos-arm.deb 679670 SHA256:b4625d37d45684317766ec4c101dc37d6a750851defeb0a175c9d9f3be7f9728
+'https://apt.bingner.com/debs/1443.00/inetutils_1.9.4-2_iphoneos-arm.deb' inetutils_1.9.4-2_iphoneos-arm.deb 268236 SHA256:4fc0c494701bdb6fa4538788c77d63024960308cc657b72a9e8cc9c09bf9019d
+'https://apt.bingner.com/debs/1443.00/ncurses_6.1+20181013-1_iphoneos-arm.deb' ncurses_6.1+20181013-1_iphoneos-arm.deb 365394 SHA256:e55c55c9d61f3a3b0c1fd1a3df1add4083a6d3e891f87fb698c57d33d2365567
+'https://apt.bingner.com/debs/1443.00/ncurses5-libs_5.9-1_iphoneos-arm.deb' ncurses5-libs_5.9-1_iphoneos-arm.deb 174740 SHA256:3001282a457fc30ea5e79b9a13fcd2f972640e2d78880d5099c4f5e2de484225
+'https://apt.bingner.com/debs/1443.00/readline_8.0-1_iphoneos-arm.deb' readline_8.0-1_iphoneos-arm.deb 129432 SHA256:60b71efee41f78b7c427fc575c544a6ea573e4bf07520099a579e2855a040ae4";
+foreach(explode("\n",$apt_download_output) as $line){
+  $url = explode("'",$line)[1];
+  execute("curl -O \"{$url}\"");
+}
+  unmount($mountpoint);
+}
 
 
-
-
+function ask($question){
+  info("\e[1m\x1B[31m{$question}\e[0m\e[0m",false);
+  $h = fopen("php://stdin","r");
+  $answer = fgets($h);
+  fclose($h);
+  return ($answer === "y" . PHP_EOL || $answer === "yes" . PHP_EOL);
+}
+function mount_rd(){
+  verbinfo("Mounting ramdisk.dmg");
+  $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1");
+  $mount_point = explode(" ",preg_replace('/\s+/', ' ', $try_mount));
+  unset($mount_point[0]);
+  unset($mount_point[sizeof($mount_point)]);
+  $mount_point = implode(" ",$mount_point);
+  return $mount_point;
+}
+function unmount($mountpoint){
+  return execute("diskutil unmount \"{$mountpoint}\" 2>&1");
+}
 function execute($command){
   verbinfo("Executing {$command}");
   $h = popen($command . " 2>&1","r");
@@ -262,6 +307,33 @@ function is_installed($cmd){
     return false;
   } else {
     return true;
+  }
+}
+function ensure_restored_external_c(){
+  if(!file_exists("restored_external.c")){
+    verbinfo("writing sample restored_external.c");
+    file_put_contents("restored_external.c",'
+#import <spawn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+int main(){
+    sleep(5);
+    printf("****************************************************\n");
+    printf("****************************************************\n");
+    printf("****************Starting inetd and USB magic***************\n");
+    printf("****************************************************\n");
+    printf("****************************************************\n");
+    int pid, i;
+    char *arg[] = {"inetd","/private/etc/inetd.conf", NULL};
+    posix_spawn(&pid, "/usr/libexec/inetd",NULL, NULL, (char* const*)arg, NULL);
+    waitpid(pid, &i, 0);
+    char *arg12[] = {"restored_external",NULL};
+    posix_spawn(&pid, "/usr/local/bin/restored_external_original",NULL, NULL, (char* const*)arg12, NULL);
+    waitpid(pid, &i, 0);
+    return 0;
+}');
   }
 }
 ?>
