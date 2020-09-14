@@ -84,7 +84,7 @@ if(!file_exists("BuildManifest.plist")){
   info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
   $url = get_ipsw_url();
   if(HAS_WGET){
-    execute("wget \"" . addslashes($url) . "\" -cO " . FWFILE . "");
+    execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
   } else {
     execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
   }
