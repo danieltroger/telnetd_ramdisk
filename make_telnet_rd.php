@@ -19,7 +19,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 **************************************/
 
-define("VERBOSE",true);
+define("VERBOSE",false);
 
 // check args and usage
 for($i = 1; $i < 5; $i++){
@@ -32,6 +32,12 @@ foreach(Array("device","boardconfig","version","shsh2") as $i => $arg){
 }
 define("WD",DEVICE . "-" . BOARDCONFIG . "-" . VERSION . "_telnet_rd");
 
+// create logging handle if not VERBOSE
+if(!VERBOSE){
+  define("LOG",fopen("log.txt","a"));
+  fwrite(LOG,"telnet_rd_run|" . date("c") . PHP_EOL);
+}
+
 verbinfo("checking for .shsh2 file");
 if(!file_exists(SHSH2)){
   die(".shsh2 file doesn't exist or isn't readable" . PHP_EOL);
@@ -39,8 +45,8 @@ if(!file_exists(SHSH2)){
 define("SHSH2_ABS",realpath(SHSH2)); // I shouldn't have started using constants lol
 
 verbinfo("Checking for dependencies");
-if(!is_installed("diskutil") || !is_installed("hdiutil") || !is_installed("unzip") || !is_installed("plutil")){
-  die("Couldn't find diskutil, unzip, plutil or hdiutil. Please use a mac." . PHP_EOL);
+if(!is_installed("diskutil") || !is_installed("hdiutil") || !is_installed("unzip") || !is_installed("plutil") || !is_installed("curl")){
+  die("Couldn't find diskutil, unzip, plutil, curl or hdiutil. Please use a mac." . PHP_EOL);
 }
 if(!is_installed("img4")){
   die(pls_install_msg("https://github.com/xerub/img4lib"));
@@ -65,6 +71,7 @@ if(!is_installed("irecovery")){
   info("You can also install it with brew install libimobiledevice or something if you're lazy");
   exit;
 }
+define("HAS_WGET",is_installed("wget"));
 verbinfo("Cool, you've got everything installed");
 
 
@@ -76,9 +83,13 @@ if(!file_exists("BuildManifest.plist")){
   define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
   info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
   $url = get_ipsw_url();
-  execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+  if(HAS_WGET){
+    execute("wget \"" . addslashes($url) . "\" -cO " . FWFILE . "");
+  } else {
+    execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+  }
   info("Extracting ipsw");
-  execute("unzip " . FWFILE);
+  execute("unzip " . FWFILE,1);
 } else {
   verbinfo("BuildManifest.plist already exists, not attempting to resume ipsw download and extraction");
 }
@@ -101,7 +112,7 @@ sort($sizes);
 for($i = 0; $i<sizeof($sizes);$i++){
   $maybe = $dmgs[$sizes[$i]];
   verbinfo("trying to convert {$maybe} to .dmg");
-  $try = execute("img4 -i {$maybe} -o ramdisk.dmg 2>&1");
+  $try = execute("img4 -i {$maybe} -o ramdisk.dmg 2>&1",1);
   if($try === "rdsk\n"){
     $mount_point = mount_rd();
     verbinfo("Mounted potential ramdisk at \"{$mount_point}\"");
@@ -128,9 +139,7 @@ if(!defined("RAMDISK")){die("Couldn't find ramdisk\n");}
 
 
 
-
-
-info("Everything is now known, beginning to do the magic");
+info("Beginning to patch and sign things");
 if(!file_exists("kcache.raw")){
   execute("img4 -i kernelcache.* -o kcache.raw");
 } else {
@@ -212,37 +221,119 @@ if(!file_exists("devicetree.img4")){
 
 info("We now have everything needed to boot the ramdisk, just need to customize the ramdisk!");
 
-if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y, otherwise n: ")) {
+if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y. For default just press enter")) {
   info("Not adding utilities, just signing");
   execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
 }
 else {
-  info("Doing magic");
   $mountpoint = mount_rd();
-  info("Mounted RAMdisk at {$mountpoint}");
-  ensure_restored_external_c();
-  execute("xcrun -sdk iphoneos clang -arch arm64 restored_external.c -o restored_external");
+  info("Mounted RAMdisk at {$mountpoint} and now adding tools. Downloading may take a while");
+  execute("xcrun -sdk iphoneos clang -arch arm64 " . dirname(__FILE__) . "/resources/restored_external.c -o restored_external");
   execute("ldid2 -S restored_external");
   verbinfo("compiled restored_external, renaming old one");
   rename($mountpoint . "/usr/local/bin/restored_external",$mountpoint . "/usr/local/bin/restored_external_original");
   verbinfo("adding new one");
   copy("restored_external",$mountpoint . "/usr/local/bin/restored_external");
-  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin
+  execute("chmod +xxx {$mountpoint}/usr/local/bin/*");
   verbinfo("Downloading executables");
   if(!is_dir("debs")){mkdir("debs");}
   chdir("debs");
+  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano
   $apt_download_output = "'https://apt.bingner.com/debs/1443.00/coreutils-bin_8.31-1_iphoneos-arm.deb' coreutils-bin_8.31-1_iphoneos-arm.deb 679670 SHA256:b4625d37d45684317766ec4c101dc37d6a750851defeb0a175c9d9f3be7f9728
+'https://apt.bingner.com/debs/1443.00/firmware-sbin_0-1_iphoneos-all.deb' firmware-sbin_0-1_all.deb 2050 SHA256:ab782faee7925d2702467b7a837ea8755445589de2a3eb8e6b8bd52e6e2d2440
 'https://apt.bingner.com/debs/1443.00/inetutils_1.9.4-2_iphoneos-arm.deb' inetutils_1.9.4-2_iphoneos-arm.deb 268236 SHA256:4fc0c494701bdb6fa4538788c77d63024960308cc657b72a9e8cc9c09bf9019d
 'https://apt.bingner.com/debs/1443.00/ncurses_6.1+20181013-1_iphoneos-arm.deb' ncurses_6.1+20181013-1_iphoneos-arm.deb 365394 SHA256:e55c55c9d61f3a3b0c1fd1a3df1add4083a6d3e891f87fb698c57d33d2365567
 'https://apt.bingner.com/debs/1443.00/ncurses5-libs_5.9-1_iphoneos-arm.deb' ncurses5-libs_5.9-1_iphoneos-arm.deb 174740 SHA256:3001282a457fc30ea5e79b9a13fcd2f972640e2d78880d5099c4f5e2de484225
-'https://apt.bingner.com/debs/1443.00/readline_8.0-1_iphoneos-arm.deb' readline_8.0-1_iphoneos-arm.deb 129432 SHA256:60b71efee41f78b7c427fc575c544a6ea573e4bf07520099a579e2855a040ae4";
-foreach(explode("\n",$apt_download_output) as $line){
-  $url = explode("'",$line)[1];
-  execute("curl -O \"{$url}\"");
-}
+'https://apt.bingner.com/debs/1443.00/readline_8.0-1_iphoneos-arm.deb' readline_8.0-1_iphoneos-arm.deb 129432 SHA256:60b71efee41f78b7c427fc575c544a6ea573e4bf07520099a579e2855a040ae4
+'https://apt.bingner.com/debs/1443.00/system-cmds_790.30.1-2_iphoneos-arm.deb' system-cmds_790.30.1-2_iphoneos-arm.deb 94086 SHA256:5d657d85f7e57452b76037b78e1bd0ae64421309d7c1f43cff22a6e42d3adeaf
+'https://apt.bingner.com/debs/1443.00/nano_4.5-1_iphoneos-arm.deb' nano_4.5-1_iphoneos-arm.deb 174454 SHA256:a174f328475b3c926c4074880cc1535873ed5ebb1b303c4aeeba38d4108306a9";
+  foreach(explode("\n",$apt_download_output) as $line){
+    $url = explode("'",$line)[1];
+    if(HAS_WGET){
+      execute("wget --trust-server-names -c \"{$url}\"",1);
+    } else {
+      execute("curl -C - -O \"{$url}\"");
+    }
+  }
+  $debs = glob("*.deb");
+  verbinfo("Extracting debs " . implode(", ",$debs));
+  foreach($debs as $deb){
+    $debdir = $deb . ".dir";
+    if(!is_dir($debdir)){
+      mkdir($debdir);
+    }
+    chdir($debdir);
+    execute("ar -vx ../{$deb}",1);
+    execute("tar -C \"{$mountpoint}/\" -xzvf data.*",1);
+    chdir("..");
+  }
+  chdir("..");
+  foreach(Array("/var/root","/var/run") as $extra_directory){
+    $dir = $mountpoint . $extra_directory;
+    if(!is_dir($dir)){
+      mkdir($dir);
+    }
+  }
+  foreach(glob(dirname(__FILE__) . "/resources/etc/*") as $etcfile){
+    $to = $mountpoint . "/etc/" . basename($etcfile);
+    verbinfo("copying {$etcfile} to {$to}");
+    copy($etcfile,$to);
+  }
   unmount($mountpoint);
 }
-
+$bootrd = dirname(__FILE__) . "/bootrd.sh";
+if(!file_exists($bootrd)){
+  info("All done, writing bootscript to bootrd.sh. Execute ./bootrd.sh to boot.");
+  if(!file_exists("../PyBoot/pyboot.py")){
+    info("You have not successfully cloned pyboot, doing it for you.");
+    chdir("../PyBoot/");
+    execute("wget -c https://github.com/MatthewPierson/PyBoot/archive/master.zip");
+    execute("unzip master.zip");
+    execute("mv -v PyBoot-master/* .");
+    unlink("master.zip");
+    info("Try cloning with --recursive next time.");
+  }
+  file_put_contents($bootrd,"#!/usr/bin/env bash
+  cd PyBoot
+  ./pyboot.py -p
+  cd ../" . WD . "
+  sleep 1
+  irecovery -f iBSS.img4
+  sleep 1
+  irecovery -f iBSS.img4
+  sleep 1
+  irecovery -f iBEC.img4
+  sleep 1
+  irecovery -c go
+  sleep 1
+  irecovery -f ramdisk
+  sleep 1
+  irecovery -c ramdisk
+  sleep 1
+  irecovery -f devicetree.img4
+  sleep 1
+  irecovery -c devicetree
+  sleep 1
+  irecovery -f trustcache.img4
+  sleep 1
+  irecovery -c firmware
+  sleep 1
+  irecovery -f kernelcache.img4
+  sleep 1
+  irecovery -c bootx");
+  execute("chmod -v +xxx {$bootrd}");
+  if(ask("Cool, now pray it worked. Enter yes to boot directly (you need to be in DFU mode): ")){
+    chdir(dirname(__FILE__));
+    execute($bootrd);
+  }
+} else {
+  verbinfo("bootrd.sh exists, not checking for pyboot or writing it");
+  info("All done.");
+}
+if(!VERBOSE){
+  fwrite(LOG,"telnet_rd_end|" . date("c") . PHP_EOL);
+  fclose(LOG);
+}
 
 function ask($question){
   info("\e[1m\x1B[31m{$question}\e[0m\e[0m",false);
@@ -253,7 +344,7 @@ function ask($question){
 }
 function mount_rd(){
   verbinfo("Mounting ramdisk.dmg");
-  $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1");
+  $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1",1);
   $mount_point = explode(" ",preg_replace('/\s+/', ' ', $try_mount));
   unset($mount_point[0]);
   unset($mount_point[sizeof($mount_point)]);
@@ -261,16 +352,23 @@ function mount_rd(){
   return $mount_point;
 }
 function unmount($mountpoint){
-  return execute("diskutil unmount \"{$mountpoint}\" 2>&1");
+  return execute("diskutil unmount \"{$mountpoint}\" 2>&1",1);
 }
-function execute($command){
+function execute($command, $silent = false){
   verbinfo("Executing {$command}");
   $h = popen($command . " 2>&1","r");
   $o = "";
   while (!feof($h)) {
     $b = fread($h,1024);
     $o .= $b;
-    echo $b;
+    if(!VERBOSE) {
+      fwrite(LOG,$b);
+      if(!$silent){
+        echo $b;
+      }
+    } else {
+      echo $b;
+    }
   }
   fclose($h);
   return $o;
@@ -278,7 +376,11 @@ function execute($command){
 function get_ipsw_url(){
   verbinfo("Getting ipsw url from ipsw.me API");
   $versions = json_decode(file_get_contents("https://api.ipsw.me/v4/device/" . DEVICE . "?type=ipsw"),1)['firmwares'];
-  if(VERBOSE){var_dump($versions);}
+  if(VERBOSE) {
+    var_dump($versions);
+  } else {
+    fwrite(LOG,print_r($versions,1));
+  }
   $url = "";
   foreach($versions as $version){
     if($version['version'] == VERSION){ // lol
@@ -291,11 +393,15 @@ function get_ipsw_url(){
   return $url;
 }
 function info($msg,$newline = true){
-  echo $GLOBALS['argv'][0] . ": {$msg}" . ($newline ? PHP_EOL : "");
+  $line = $GLOBALS['argv'][0] . ": {$msg}" . ($newline ? PHP_EOL : "");
+  echo $line;
+  if(!VERBOSE){fwrite(LOG,$line);}
 }
 function verbinfo($msg){
   if(VERBOSE){
     info($msg);
+  } else {
+    fwrite(LOG,$msg . PHP_EOL);
   }
 }
 function pls_install_msg($github_project){
@@ -307,33 +413,6 @@ function is_installed($cmd){
     return false;
   } else {
     return true;
-  }
-}
-function ensure_restored_external_c(){
-  if(!file_exists("restored_external.c")){
-    verbinfo("writing sample restored_external.c");
-    file_put_contents("restored_external.c",'
-#import <spawn.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-int main(){
-    sleep(5);
-    printf("****************************************************\n");
-    printf("****************************************************\n");
-    printf("****************Starting inetd and USB magic***************\n");
-    printf("****************************************************\n");
-    printf("****************************************************\n");
-    int pid, i;
-    char *arg[] = {"inetd","/private/etc/inetd.conf", NULL};
-    posix_spawn(&pid, "/usr/libexec/inetd",NULL, NULL, (char* const*)arg, NULL);
-    waitpid(pid, &i, 0);
-    char *arg12[] = {"restored_external",NULL};
-    posix_spawn(&pid, "/usr/local/bin/restored_external_original",NULL, NULL, (char* const*)arg12, NULL);
-    waitpid(pid, &i, 0);
-    return 0;
-}');
   }
 }
 ?>
