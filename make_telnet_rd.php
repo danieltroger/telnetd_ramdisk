@@ -19,7 +19,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 **************************************/
 
-define("VERBOSE",false);
+define("VERBOSE",true);
 
 // check args and usage
 for($i = 1; $i < 5; $i++){
@@ -62,6 +62,9 @@ if(!is_installed("autodecrypt")){
 }
 if(!is_installed("kairos")){
   die(pls_install_msg("https://github.com/dayt0n/kairos"));
+}
+if(!is_installed("iproxy")){
+  die(pls_install_msg("https://github.com/libimobiledevice/libusbmuxd"));
 }
 if(!is_installed("Kernel64Patcher")){
   die(pls_install_msg("https://github.com/Ralph0045/Kernel64Patcher"));
@@ -221,32 +224,40 @@ if(!file_exists("devicetree.img4")){
 
 info("We now have everything needed to boot the ramdisk, just need to customize the ramdisk!");
 
-if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y. For default just press enter")) {
+if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y. For default just press enter ")) {
   info("Not adding utilities, just signing");
-  execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
 }
 else {
+  verbinfo("enlarging ramdisk");
+  execute("hdiutil resize -size 150MB ramdisk.dmg");
   $mountpoint = mount_rd();
   info("Mounted RAMdisk at {$mountpoint} and now adding tools. Downloading may take a while");
   execute("xcrun -sdk iphoneos clang -arch arm64 " . dirname(__FILE__) . "/resources/restored_external.c -o restored_external");
   execute("ldid2 -S restored_external");
   verbinfo("compiled restored_external, renaming old one");
-  rename($mountpoint . "/usr/local/bin/restored_external",$mountpoint . "/usr/local/bin/restored_external_original");
+  execute("mv -v \"{$mountpoint}/usr/local/bin/restored_external\" \"{$mountpoint}/usr/local/bin/restored_external_original\"",1);
   verbinfo("adding new one");
-  copy("restored_external",$mountpoint . "/usr/local/bin/restored_external");
-  execute("chmod +xxx {$mountpoint}/usr/local/bin/*");
+  execute("cp -v restored_external \"{$mountpoint}/usr/local/bin/restored_external\"");
   verbinfo("Downloading executables");
   if(!is_dir("debs")){mkdir("debs");}
   chdir("debs");
-  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano
-  $apt_download_output = "'https://apt.bingner.com/debs/1443.00/coreutils-bin_8.31-1_iphoneos-arm.deb' coreutils-bin_8.31-1_iphoneos-arm.deb 679670 SHA256:b4625d37d45684317766ec4c101dc37d6a750851defeb0a175c9d9f3be7f9728
+  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano bash sed grep htop findutils less coreutils profile.d
+  $apt_download_output = "'https://apt.bingner.com/debs/1443.00/bash_5.0.3-2_iphoneos-arm.deb' bash_5.0.3-2_iphoneos-arm.deb 480482 SHA256:078a0a6dc0619dc5db2cbb411a925ab5c08810279994714fd0343fc63f7d4072
+'https://apt.bingner.com/debs/1443.00/coreutils_8.31-1_iphoneos-arm.deb' coreutils_8.31-1_iphoneos-arm.deb 714854 SHA256:37a125683866d6afa27979f39ccad3d1e2b187c33f09a9cc291c9e9b1f14a006
+'https://apt.bingner.com/debs/1443.00/coreutils-bin_8.31-1_iphoneos-arm.deb' coreutils-bin_8.31-1_iphoneos-arm.deb 679670 SHA256:b4625d37d45684317766ec4c101dc37d6a750851defeb0a175c9d9f3be7f9728
+'https://apt.bingner.com/debs/1443.00/findutils_4.6.0-2_iphoneos-arm.deb' findutils_4.6.0-2_iphoneos-arm.deb 212748 SHA256:fb683abb9c0c7ca3b6bcb3aa87ce31785ad2480fd46e650c2fc757a22fa51516
 'https://apt.bingner.com/debs/1443.00/firmware-sbin_0-1_iphoneos-all.deb' firmware-sbin_0-1_all.deb 2050 SHA256:ab782faee7925d2702467b7a837ea8755445589de2a3eb8e6b8bd52e6e2d2440
+'https://apt.bingner.com/debs/1443.00/grep_3.1-1_iphoneos-arm.deb' grep_3.1-1_iphoneos-arm.deb 91310 SHA256:b2b9473623f867735d878ee12b76af26084bbcf7bf5788a8985a579d8b806bbe
+'https://apt.bingner.com/debs/1443.00/htop_2.2.0-1_iphoneos-arm.deb' htop_2.2.0-1_iphoneos-arm.deb 47260 SHA256:56c85b1f968912ab7c85b2561923c0231b1493b6899842552a7da1889d0520f3
 'https://apt.bingner.com/debs/1443.00/inetutils_1.9.4-2_iphoneos-arm.deb' inetutils_1.9.4-2_iphoneos-arm.deb 268236 SHA256:4fc0c494701bdb6fa4538788c77d63024960308cc657b72a9e8cc9c09bf9019d
+'https://apt.bingner.com/debs/1443.00/less_530-2_iphoneos-arm.deb' less_530-2_iphoneos-arm.deb 73896 SHA256:71b2db9247ca5342c635d5f95bc43f56d09af2d42a6f5602144f6ec37ee6a5a0
+'https://apt.bingner.com/debs/1443.00/nano_4.5-1_iphoneos-arm.deb' nano_4.5-1_iphoneos-arm.deb 174454 SHA256:a174f328475b3c926c4074880cc1535873ed5ebb1b303c4aeeba38d4108306a9
 'https://apt.bingner.com/debs/1443.00/ncurses_6.1+20181013-1_iphoneos-arm.deb' ncurses_6.1+20181013-1_iphoneos-arm.deb 365394 SHA256:e55c55c9d61f3a3b0c1fd1a3df1add4083a6d3e891f87fb698c57d33d2365567
 'https://apt.bingner.com/debs/1443.00/ncurses5-libs_5.9-1_iphoneos-arm.deb' ncurses5-libs_5.9-1_iphoneos-arm.deb 174740 SHA256:3001282a457fc30ea5e79b9a13fcd2f972640e2d78880d5099c4f5e2de484225
+'https://apt.bingner.com/debs/1443.00/profile.d_0-1_iphoneos-arm.deb' profile.d_0-1_iphoneos-arm.deb 918 SHA256:c83306dc925b5a7844098a496b8fd3eb1c3787dea912b6f7c4611d64fc651194
 'https://apt.bingner.com/debs/1443.00/readline_8.0-1_iphoneos-arm.deb' readline_8.0-1_iphoneos-arm.deb 129432 SHA256:60b71efee41f78b7c427fc575c544a6ea573e4bf07520099a579e2855a040ae4
-'https://apt.bingner.com/debs/1443.00/system-cmds_790.30.1-2_iphoneos-arm.deb' system-cmds_790.30.1-2_iphoneos-arm.deb 94086 SHA256:5d657d85f7e57452b76037b78e1bd0ae64421309d7c1f43cff22a6e42d3adeaf
-'https://apt.bingner.com/debs/1443.00/nano_4.5-1_iphoneos-arm.deb' nano_4.5-1_iphoneos-arm.deb 174454 SHA256:a174f328475b3c926c4074880cc1535873ed5ebb1b303c4aeeba38d4108306a9";
+'https://apt.bingner.com/debs/1443.00/sed_4.5-1_iphoneos-arm.deb' sed_4.5-1_iphoneos-arm.deb 76688 SHA256:8a8e92b8e611514f163ca56e6fd05cbcd9f457f07d4d87ccc9202a1c6b157422
+'https://apt.bingner.com/debs/1443.00/system-cmds_790.30.1-2_iphoneos-arm.deb' system-cmds_790.30.1-2_iphoneos-arm.deb 94086 SHA256:5d657d85f7e57452b76037b78e1bd0ae64421309d7c1f43cff22a6e42d3adeaf";
   foreach(explode("\n",$apt_download_output) as $line){
     $url = explode("'",$line)[1];
     if(HAS_WGET){
@@ -257,6 +268,9 @@ else {
   }
   $debs = glob("*.deb");
   verbinfo("Extracting debs " . implode(", ",$debs));
+  if(!is_dir("staging")){
+    mkdir("staging");
+  }
   foreach($debs as $deb){
     $debdir = $deb . ".dir";
     if(!is_dir($debdir)){
@@ -264,9 +278,11 @@ else {
     }
     chdir($debdir);
     execute("ar -vx ../{$deb}",1);
-    execute("tar -C \"{$mountpoint}/\" -xzvf data.*",1);
+    execute("tar -C ../staging/ -xzvkf data.*",1);
     chdir("..");
   }
+  verbinfo("Syncing extracted debs into fs");
+  execute("rsync --ignore-existing -avhuK --progress ./staging/ \"{$mountpoint}/\""); // this is necessary because tar overwrites symlinks smh
   chdir("..");
   foreach(Array("/var/root","/var/run") as $extra_directory){
     $dir = $mountpoint . $extra_directory;
@@ -277,58 +293,56 @@ else {
   foreach(glob(dirname(__FILE__) . "/resources/etc/*") as $etcfile){
     $to = $mountpoint . "/etc/" . basename($etcfile);
     verbinfo("copying {$etcfile} to {$to}");
-    copy($etcfile,$to);
+    execute("cp -v \"{$etcfile}\" \"{$to}\"",1);
   }
   unmount($mountpoint);
 }
+execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
 $bootrd = dirname(__FILE__) . "/bootrd.sh";
-if(!file_exists($bootrd)){
-  info("All done, writing bootscript to bootrd.sh. Execute ./bootrd.sh to boot.");
-  if(!file_exists("../PyBoot/pyboot.py")){
-    info("You have not successfully cloned pyboot, doing it for you.");
-    chdir("../PyBoot/");
-    execute("wget -c https://github.com/MatthewPierson/PyBoot/archive/master.zip");
-    execute("unzip master.zip");
-    execute("mv -v PyBoot-master/* .");
-    unlink("master.zip");
-    info("Try cloning with --recursive next time.");
-  }
-  file_put_contents($bootrd,"#!/usr/bin/env bash
-  cd PyBoot
-  ./pyboot.py -p
-  cd ../" . WD . "
-  sleep 1
-  irecovery -f iBSS.img4
-  sleep 1
-  irecovery -f iBSS.img4
-  sleep 1
-  irecovery -f iBEC.img4
-  sleep 1
-  irecovery -c go
-  sleep 1
-  irecovery -f ramdisk
-  sleep 1
-  irecovery -c ramdisk
-  sleep 1
-  irecovery -f devicetree.img4
-  sleep 1
-  irecovery -c devicetree
-  sleep 1
-  irecovery -f trustcache.img4
-  sleep 1
-  irecovery -c firmware
-  sleep 1
-  irecovery -f kernelcache.img4
-  sleep 1
-  irecovery -c bootx");
-  execute("chmod -v +xxx {$bootrd}");
-  if(ask("Cool, now pray it worked. Enter yes to boot directly (you need to be in DFU mode): ")){
-    chdir(dirname(__FILE__));
-    execute($bootrd);
-  }
-} else {
-  verbinfo("bootrd.sh exists, not checking for pyboot or writing it");
-  info("All done.");
+info("All done, writing bootscript to bootrd.sh. Execute ./bootrd.sh to boot.");
+if(!file_exists("../PyBoot/pyboot.py")){
+  info("You have not successfully cloned pyboot, doing it for you.");
+  chdir("../PyBoot/");
+  execute("wget -c https://github.com/MatthewPierson/PyBoot/archive/master.zip",1);
+  execute("unzip master.zip",1);
+  execute("mv -v PyBoot-master/* .",1);
+  execute("rm -rvf PyBoot-master",1);
+  unlink("master.zip");
+  info("Try cloning with --recursive next time.");
+}
+file_put_contents($bootrd,"#!/usr/bin/env bash
+cd PyBoot
+./pyboot.py -p
+cd ../" . WD . "
+sleep 1
+irecovery -f iBSS.img4
+sleep 1
+irecovery -f iBSS.img4
+sleep 1
+irecovery -f iBEC.img4
+sleep 1
+irecovery -c go
+sleep 1
+irecovery -f ramdisk
+sleep 1
+irecovery -c ramdisk
+sleep 1
+irecovery -f devicetree.img4
+sleep 1
+irecovery -c devicetree
+sleep 1
+irecovery -f trustcache.img4
+sleep 1
+irecovery -c firmware
+sleep 1
+irecovery -f kernelcache.img4
+sleep 1
+irecovery -c bootx
+echo Alright, now run 'iproxy 2323 23' to start the proxy, and in a new tab connect with 'telnet 127.0.0.1 2323' as soon as the screen turns white. Login with username: root, password: alpine. Screen will get black after like two minutes but you should still have connectivity.");
+execute("chmod -v +xxx {$bootrd}",1);
+if(ask("Cool, now pray it worked. Enter yes to boot directly (you need to be in DFU mode): ")){
+  chdir(dirname(__FILE__));
+  execute($bootrd);
 }
 if(!VERBOSE){
   fwrite(LOG,"telnet_rd_end|" . date("c") . PHP_EOL);
@@ -352,7 +366,7 @@ function mount_rd(){
   return $mount_point;
 }
 function unmount($mountpoint){
-  return execute("diskutil unmount \"{$mountpoint}\" 2>&1",1);
+  return execute("hdiutil detach \"{$mountpoint}\" 2>&1",1);
 }
 function execute($command, $silent = false){
   verbinfo("Executing {$command}");
