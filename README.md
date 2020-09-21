@@ -65,12 +65,12 @@ img4lib, img4tool, ldid2, autodecrypt, kairos, libusbmuxd, Kernel64Patcher, libi
 * Huge thanks to [mcg29](https://github.com/mcg29), without his help and info I would have given up a long time ago. [twitter](https://twitter.com/mcg29_)
 * Also a big thanks to [Exploit3d](https://twitter.com/exploit3dguy) for the info about the seputil commands, mounting the user fs would have been hard without his help.
 * Thanks to [Sam Bingner](https://github.com/sbingner) for the inetutils package, we wouldn't have telnetd on iOS without him. Also he inspired me to write script this by asking for it. [twitter](https://twitter.com/sbingner)
-* Thanks to @MatthewPierson for PyBoot and @axi0mX for [ipwndfu](https://github.com/axi0mX/ipwndfu)/checkm8 I'm illiterate in low-level stuff so all the peeps making this "a bunch of shell commands" are incredible. Thank you <3!
+* Thanks to [@MatthewPierson](https://github.com/MatthewPierson) for PyBoot and [@axi0mX](https://github.com/axi0mX) for [ipwndfu](https://github.com/axi0mX/ipwndfu)/checkm8 I'm illiterate in low-level stuff so all the peeps making this "a bunch of shell commands" are incredible. Thank you <3!
 * Thanks to the writers of my dependencies:
-  * @xerub for img4lib
-  * @dayt0n for kairos
-  * @nikias / @libimobiledevice for iproxy and libirecovery
-  * Thanks to @Ralph0045 for Kernel64Patcher
+  * [@xerub](https://github.com/xerub) for img4lib
+  * [@dayt0n](https://github.com/dayt0n) for kairos
+  * [@nikias](https://github.com/nikias) / [@libimobiledevice](https://github.com/libimobiledevice) for iproxy and libirecovery
+  * Thanks to [@Ralph0045](https://github.com/Ralph0045) for Kernel64Patcher
 * And thanks to whoever I might have forgotten
 
 the script is licensed under GPLv3
