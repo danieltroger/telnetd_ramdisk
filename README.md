@@ -30,7 +30,7 @@ it tells you everything you need to know and do to get the ramdisk and telnet co
 
 Supported operating systems: macOS
 
-Regarding iOS versions your mileage may vary. I have successfully tried iOS 12.4.1, 13.0, 13.5, 13.6 and 13.7.
+Regarding iOS versions your mileage may vary. I have successfully tested iOS 12.0, 12.4.1, 13.0, 13.5, 13.6, 13.7, 14.0.
 
 BTW: the whole script is made to be ran again and again. Cancelled half way? Run it again and it will pick up where it left. Made changes to ramdisk.dmg? Run it again and answer yes. Made changes to restored_external.c? Run it again! Don't be afraid
 

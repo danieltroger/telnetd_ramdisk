@@ -234,15 +234,19 @@ else {
   info("Mounted RAMdisk at {$mountpoint} and now adding tools. Downloading may take a while");
   execute("xcrun -sdk iphoneos clang -arch arm64 " . dirname(__FILE__) . "/resources/restored_external.c -o restored_external");
   execute("ldid2 -S restored_external");
-  verbinfo("compiled restored_external, renaming old one");
-  execute("mv -v \"{$mountpoint}/usr/local/bin/restored_external\" \"{$mountpoint}/usr/local/bin/restored_external_original\"",1);
+  verbinfo("compiled restored_external");
+  if(!file_exists("{$mountpoint}/usr/local/bin/restored_external_original")){
+    verbinfo("renaming old one");
+    execute("mv -v \"{$mountpoint}/usr/local/bin/restored_external\" \"{$mountpoint}/usr/local/bin/restored_external_original\"",1);
+  }
   verbinfo("adding new one");
   execute("cp -v restored_external \"{$mountpoint}/usr/local/bin/restored_external\"");
   verbinfo("Downloading executables");
   if(!is_dir("debs")){mkdir("debs");}
   chdir("debs");
-  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano bash sed grep htop findutils less coreutils profile.d
+  // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano bash sed grep htop findutils less coreutils profile.d com.bingner.snappy
   $apt_download_output = "'https://apt.bingner.com/debs/1443.00/bash_5.0.3-2_iphoneos-arm.deb' bash_5.0.3-2_iphoneos-arm.deb 480482 SHA256:078a0a6dc0619dc5db2cbb411a925ab5c08810279994714fd0343fc63f7d4072
+'https://apt.bingner.com/debs/1443.00/com.bingner.snappy_1.3.0_iphoneos-arm.deb' com.bingner.snappy_1.3.0_iphoneos-arm.deb 15438 SHA256:7e9db38dd7959de4484ee686c4cf8e31c47362c43865ae2e0466af190a49d484
 'https://apt.bingner.com/debs/1443.00/coreutils_8.31-1_iphoneos-arm.deb' coreutils_8.31-1_iphoneos-arm.deb 714854 SHA256:37a125683866d6afa27979f39ccad3d1e2b187c33f09a9cc291c9e9b1f14a006
 'https://apt.bingner.com/debs/1443.00/coreutils-bin_8.31-1_iphoneos-arm.deb' coreutils-bin_8.31-1_iphoneos-arm.deb 679670 SHA256:b4625d37d45684317766ec4c101dc37d6a750851defeb0a175c9d9f3be7f9728
 'https://apt.bingner.com/debs/1443.00/findutils_4.6.0-2_iphoneos-arm.deb' findutils_4.6.0-2_iphoneos-arm.deb 212748 SHA256:fb683abb9c0c7ca3b6bcb3aa87ce31785ad2480fd46e650c2fc757a22fa51516
@@ -281,6 +285,14 @@ else {
     execute("tar -C ../staging/ -xzvkf data.*",1);
     chdir("..");
   }
+  verbinfo("Downloading and installing busybox (if Sam Bingner) still hosts it");
+  execute("wget https://www.bingner.com/busybox.gz -O busybox.gz");
+  execute("cat busybox.gz|gzip -d > busybox");
+  execute("chmod +xxx busybox");
+  execute("ldid2 -S busybox");
+  execute("ldid2 -S ./staging/usr/bin/htop");
+  execute("ldid2 -S ./staging/usr/bin/find"); // idk if this makes them not die with Killed: 9 and why they do it otherwise
+  execute("cp -v busybox ./staging/bin/");
   verbinfo("Syncing extracted debs into fs");
   execute("rsync --ignore-existing -avhuK --progress ./staging/ \"{$mountpoint}/\""); // this is necessary because tar overwrites symlinks smh
   chdir("..");
@@ -295,11 +307,13 @@ else {
     verbinfo("copying {$etcfile} to {$to}");
     execute("cp -v \"{$etcfile}\" \"{$to}\"",1);
   }
+  // execute("img4tool -c sep-firmware.img4 -p Firmware/all_flash/sep-firmware.d211.RELEASE.im4p -m IM4M"); // this will 99% never work, leaving it here as legacy. A missing sep-firmware.img4 can't be recovered.
+  // execute("cp -v sep-firmware.img4 {$mountpoint}/usr/standalone/firmware/");
   unmount($mountpoint);
 }
 execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
-$bootrd = dirname(__FILE__) . "/bootrd.sh";
-info("All done, writing bootscript to bootrd.sh. Execute ./bootrd.sh to boot.");
+$bootrd = dirname(__FILE__) . "/bootrd_" . VERSION . ".sh";
+info("All done, writing bootscript to bootrd.sh. Execute ./bootrd_" . VERSION . ".sh to boot.");
 if(!file_exists("../PyBoot/pyboot.py")){
   info("You have not successfully cloned pyboot, doing it for you.");
   chdir("../PyBoot/");
