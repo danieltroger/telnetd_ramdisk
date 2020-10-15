@@ -286,7 +286,11 @@ else {
     chdir("..");
   }
   verbinfo("Downloading and installing busybox (if Sam Bingner) still hosts it");
-  execute("wget https://www.bingner.com/busybox.gz -O busybox.gz");
+  if(HAS_WGET){
+    execute("wget https://www.bingner.com/busybox.gz -c -O busybox.gz");
+  } else {
+    execute("curl https://www.bingner.com/busybox.gz -C - -o busybox.gz");
+  }
   execute("cat busybox.gz|gzip -d > busybox");
   execute("chmod +xxx busybox");
   execute("ldid2 -S busybox");
@@ -317,7 +321,11 @@ info("All done, writing bootscript to bootrd.sh. Execute ./bootrd_" . VERSION . 
 if(!file_exists("../PyBoot/pyboot.py")){
   info("You have not successfully cloned pyboot, doing it for you.");
   chdir("../PyBoot/");
-  execute("wget -c https://github.com/MatthewPierson/PyBoot/archive/master.zip",1);
+  if(HAS_WGET){
+    execute("wget -c https://github.com/MatthewPierson/PyBoot/archive/master.zip",1);
+  } else {
+    execute("curl -C - -o master.zip https://github.com/MatthewPierson/PyBoot/archive/master.zip",1);
+  }
   execute("unzip master.zip",1);
   execute("mv -v PyBoot-master/* .",1);
   execute("rm -rvf PyBoot-master",1);
