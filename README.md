@@ -51,6 +51,16 @@ The script is based on [this guide](https://dualbootfun.github.io/) and roughly 
 
 You can then execute that script by running `./boot_rd_VERSION.sh` with VERSION being the ios version
 
+### What's expected to happen?
+- the script will output the output of all its sub-utilities. Read it, in case some errors out.
+- when running bootrd.sh:
+- PyBoot should say "exploit worked", at least for A11 devices if everything went right
+- irecovery should show a total of six progress bars, and while they load the backlight should turn on and off on non OLED devices
+- after all 6 progress bars have loaded you should see a verbose boot on the device's screen
+- read the verbose boot output, especially at the end, for hints of errors
+- after the verbose boot the screen should turn white with a progress bar under an apple logo which never completes. At this point (or like 10s after) you can start iproxy if you haven't already and try to connect via telnet
+- after around a minute the screen will turn black but you should still have access to the device
+
 
 #### Dependencies:
 img4lib, img4tool, ldid2, autodecrypt, kairos, libusbmuxd, Kernel64Patcher, libirecovery and tools preinstalled on macOS (like php, curl, zip, plutil, hdiutil, etc). If you just run the script without them it will give you the github URLs to install them from.
