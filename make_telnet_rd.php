@@ -48,32 +48,30 @@ verbinfo("Checking for dependencies");
 if(!is_installed("diskutil") || !is_installed("hdiutil") || !is_installed("unzip") || !is_installed("plutil") || !is_installed("curl")){
   die("Couldn't find diskutil, unzip, plutil, curl or hdiutil. Please use a mac." . PHP_EOL);
 }
-if(!is_installed("img4")){
-  die(pls_install_msg("https://github.com/xerub/img4lib"));
+$dependencies = array(
+  "img4" => "https://github.com/xerub/img4lib",
+  "img4tool" => "https://github.com/tihmstar/img4tool",
+  "ldid2"=>"https://github.com/xerub/ldid/releases/",
+  "autodecrypt" => "https://github.com/matteyeux/autodecrypt",
+  "kairos" => "https://github.com/dayt0n/kairos",
+  "iproxy" => "https://github.com/libimobiledevice/libusbmuxd",
+  "Kernel64Patcher" => "https://github.com/Ralph0045/Kernel64Patcher",
+  "irecovery" => "https://github.com/libimobiledevice/libirecovery"
+);
+
+foreach($dependencies as $dependency_cmd => $dependency_source)
+{
+  if(!is_installed($dependency_cmd))
+  {
+    echo(pls_install_msg($dependency_source));
+    if($dependency_cmd === 'irecovery')
+    {
+      info("You can also install it with brew install libimobiledevice or something if you're lazy");
+    }
+    die();
+  }
 }
-if(!is_installed("img4tool")){
-  die(pls_install_msg("https://github.com/tihmstar/img4tool"));
-}
-if(!is_installed("ldid2")){
-  die(pls_install_msg("https://github.com/xerub/ldid/releases/"));
-}
-if(!is_installed("autodecrypt")){
-  die(pls_install_msg("https://github.com/matteyeux/autodecrypt"));
-}
-if(!is_installed("kairos")){
-  die(pls_install_msg("https://github.com/dayt0n/kairos"));
-}
-if(!is_installed("iproxy")){
-  die(pls_install_msg("https://github.com/libimobiledevice/libusbmuxd"));
-}
-if(!is_installed("Kernel64Patcher")){
-  die(pls_install_msg("https://github.com/Ralph0045/Kernel64Patcher"));
-}
-if(!is_installed("irecovery")){
-  echo(pls_install_msg("https://github.com/libimobiledevice/libirecovery"));
-  info("You can also install it with brew install libimobiledevice or something if you're lazy");
-  exit;
-}
+
 define("HAS_WGET",is_installed("wget"));
 verbinfo("Cool, you've got everything installed");
 
