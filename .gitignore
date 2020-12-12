@@ -1,0 +1,6 @@
+WD_*
+.DS_Store
+bin/
+dependencies/
+*.shsh*
+*.der

@@ -30,7 +30,7 @@ for($i = 1; $i < 5; $i++){
 foreach(Array("device","boardconfig","version","shsh2") as $i => $arg){
   define(strtoupper($arg),$argv[$i+1]);
 }
-define("WD",DEVICE . "-" . BOARDCONFIG . "-" . VERSION . "_telnet_rd");
+define("WD","WD_" . DEVICE . "-" . BOARDCONFIG . "-" . VERSION . "_telnet_rd");
 
 // create logging handle if not VERBOSE
 if(!VERBOSE){
