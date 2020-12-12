@@ -63,6 +63,13 @@ foreach($dependencies as $dependency_cmd => $dependency_source)
 {
   if(!is_installed($dependency_cmd))
   {
+    // attempt to automatically build the dependency
+    $dependency_function = "add_dependency_$dependency_cmd";
+    if(is_callable($dependency_function))
+    {
+      $dependency_function();
+      if(is_installed($dependency_cmd)) continue;
+    }
     echo(pls_install_msg($dependency_source));
     if($dependency_cmd === 'irecovery')
     {
@@ -231,7 +238,7 @@ else {
   $mountpoint = mount_rd();
   info("Mounted RAMdisk at {$mountpoint} and now adding tools. Downloading may take a while");
   execute("xcrun -sdk iphoneos clang -arch arm64 " . dirname(__FILE__) . "/resources/restored_external.c -o restored_external");
-  execute("ldid2 -S restored_external");
+  execute(LDID2_PATH." -S restored_external");
   verbinfo("compiled restored_external");
   if(!file_exists("{$mountpoint}/usr/local/bin/restored_external_original")){
     verbinfo("renaming old one");
@@ -291,9 +298,9 @@ else {
   }
   execute("cat busybox.gz|gzip -d > busybox");
   execute("chmod +xxx busybox");
-  execute("ldid2 -S busybox");
-  execute("ldid2 -S ./staging/usr/bin/htop");
-  execute("ldid2 -S ./staging/usr/bin/find"); // idk if this makes them not die with Killed: 9 and why they do it otherwise
+  execute(LDID2_PATH." -S busybox");
+  execute(LDID2_PATH." -S ./staging/usr/bin/htop");
+  execute(LDID2_PATH." -S ./staging/usr/bin/find"); // idk if this makes them not die with Killed: 9 and why they do it otherwise
   execute("cp -v busybox ./staging/bin/");
   verbinfo("Syncing extracted debs into fs");
   execute("rsync --ignore-existing -avhuK --progress ./staging/ \"{$mountpoint}/\""); // this is necessary because tar overwrites symlinks smh
@@ -368,6 +375,26 @@ if(!VERBOSE){
   fwrite(LOG,"telnet_rd_end|" . date("c") . PHP_EOL);
   fclose(LOG);
 }
+function curlget(string $url, array $headers = null, array $post = null, array $opt_arr = [])
+{
+  //param1 -> url for cURL, param2 -> pass array to be used as header
+	$handle = curl_init();
+	curl_setopt($handle, CURLOPT_URL, $url);
+	if(isset($headers))  curl_setopt($handle, CURLOPT_HTTPHEADER, $headers) ;
+	if(!empty($post)) curl_setopt($handle, CURLOPT_POSTFIELDS, $post);
+	if(!empty($opt_arr)) curl_setopt_array($handle, $opt_arr);
+
+	curl_setopt($handle, CURLOPT_FOLLOWLOCATION, true);
+	curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
+	curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, false);
+	curl_setopt($handle, CURLOPT_RETURNTRANSFER, 1);
+	curl_error($handle);
+	$response = curl_exec($handle);
+	curl_close($handle);
+
+	$json = json_decode(trim($response));
+  return (is_object($json) ? $json : $response);
+}
 
 function ask($question){
   info("\e[1m\x1B[31m{$question}\e[0m\e[0m",false);
@@ -376,6 +403,7 @@ function ask($question){
   fclose($h);
   return ($answer === "y" . PHP_EOL || $answer === "yes" . PHP_EOL);
 }
+
 function mount_rd(){
   verbinfo("Mounting ramdisk.dmg");
   $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1",1);
@@ -385,9 +413,11 @@ function mount_rd(){
   $mount_point = implode(" ",$mount_point);
   return $mount_point;
 }
+
 function unmount($mountpoint){
   return execute("hdiutil detach \"{$mountpoint}\" 2>&1",1);
 }
+
 function execute($command, $silent = false){
   verbinfo("Executing {$command}");
   $h = popen($command . " 2>&1","r");
@@ -407,6 +437,7 @@ function execute($command, $silent = false){
   fclose($h);
   return $o;
 }
+
 function get_ipsw_url(){
   verbinfo("Getting ipsw url from ipsw.me API");
   $versions = json_decode(file_get_contents("https://api.ipsw.me/v4/device/" . DEVICE . "?type=ipsw"),1)['firmwares'];
@@ -426,11 +457,13 @@ function get_ipsw_url(){
   verbinfo("Got url {$url}");
   return $url;
 }
+
 function info($msg,$newline = true){
   $line = $GLOBALS['argv'][0] . ": {$msg}" . ($newline ? PHP_EOL : "");
   echo $line;
   if(!VERBOSE){fwrite(LOG,$line);}
 }
+
 function verbinfo($msg){
   if(VERBOSE){
     info($msg);
@@ -438,15 +471,105 @@ function verbinfo($msg){
     fwrite(LOG,$msg . PHP_EOL);
   }
 }
+
 function pls_install_msg($github_project){
   return "Dependency missing: Please download, compile (if needed) and install {$github_project} and make sure it's in PATH." . PHP_EOL;
 }
+
 function is_installed($cmd){
   verbinfo("Checking for {$cmd}");
+  $dependency_const_name = strtoupper($cmd)."_PATH";
   if(shell_exec("which {$cmd}") === NULL){
+    if(is_executable(__DIR__."/bin/$cmd")){
+      define($dependency_const_name, __DIR__."/bin/$cmd");
+      return true;
+    }
     return false;
   } else {
+    define($dependency_const_name, $cmd);
     return true;
   }
 }
+
+function add_dependency_ldid2(): bool
+{
+  $base_url = 'https://api.github.com';
+  $user_name = 'xerub';
+  $repo_name = 'ldid';
+  $url = "$base_url/repos/$user_name/$repo_name/releases";
+  // $url = "$base_url/repos/pwn20wndstuff/Undecimus/releases";
+  $working_path = __DIR__."/dependencies/$repo_name";
+
+  $data = curlget($url, ['User-Agent: make_telnet_rd']);
+  $releases = json_decode($data);
+  if(empty($releases)) return false;
+  // var_dump($releases);die();
+
+  $latest_release = null;
+  $iter_cmp_timetamp = 0;
+  foreach($releases as $release)
+  {
+    $release_published_timestamp = strtotime($release->published_at);
+    if($release_published_timestamp > $iter_cmp_timetamp)
+    {
+      $latest_release = $release;
+      $iter_cmp_timetamp = $release_published_timestamp;
+    }
+  }
+  verbinfo("Selected {$latest_release->tag_name} of $repo_name");
+  if(empty($latest_release->assets))
+  {
+    return false;
+  }
+
+  if(!is_dir($working_path))
+  {
+    execute("mkdir -p $working_path");
+  }
+
+  foreach($latest_release->assets as $asset)
+  {
+    $dl_url = $asset->browser_download_url;
+    $dl_url_pathinfo = pathinfo($dl_url);
+    $dl_file_path = "$working_path/{$dl_url_pathinfo['basename']}";
+    if($dl_url_pathinfo['extension'] === 'zip')
+    {
+      execute("wget $dl_url -O $dl_file_path");
+      if(!file_exists($dl_file_path))
+      {
+        continue;
+      }
+      $z = new ZipArchive();
+      $z_open_success = $z -> open($dl_file_path);
+      if($z_open_success === true)
+      {
+        if($z->locateName('ldid2') === false)
+        {
+          continue;
+        }
+        $z_extract_success = $z -> extractTo($working_path, array('ldid2'));
+        if(!$z_extract_success)
+        {
+          continue;
+        }
+        $binary_path = "$working_path/ldid2";
+        if(!is_executable($binary_path))
+        {
+          chmod($binary_path, 0755);
+          if(!is_dir(__DIR__."/bin"))
+          {
+            mkdir(__DIR__."/bin");
+          }
+          if(rename($binary_path, __DIR__."/bin/ldid2"))
+          {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 ?>
