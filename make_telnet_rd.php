@@ -56,12 +56,26 @@ $dependencies = array(
   "kairos" => "https://github.com/dayt0n/kairos",
   "iproxy" => "https://github.com/libimobiledevice/libusbmuxd",
   "Kernel64Patcher" => "https://github.com/Ralph0045/Kernel64Patcher",
-  "irecovery" => "https://github.com/libimobiledevice/libirecovery"
+  "irecovery" => "https://github.com/libimobiledevice/libirecovery",
+  "remotezip" => "https://pypi.org/project/remotezip/"
 );
 
 foreach($dependencies as $dependency_cmd => $dependency_source)
 {
-  if(!is_installed($dependency_cmd))
+  $dependency_available = is_installed($dependency_cmd);
+
+  if($dependency_cmd === 'remotezip')
+  {
+    define("HAS_REMOTEZIP", $dependency_available);
+    if(!HAS_REMOTEZIP)
+    {
+      echo("remotezip is a python library that allows you to download files from ipsw without downloading the entire ipsw. It's not necessary but it'll save time and resources\n");
+      // since it's an optional dependency, skip over it even if it doesn't exist
+      continue;
+    }
+  }
+
+  if(!$dependency_available)
   {
     // attempt to automatically build the dependency
     $dependency_function = "add_dependency_$dependency_cmd";
@@ -88,16 +102,27 @@ if(!is_dir(WD)) {mkdir(WD);}
 chdir(WD);
 
 if(!file_exists("BuildManifest.plist")){
-  define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
-  info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
   $url = get_ipsw_url();
-  if(HAS_WGET){
-    execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
-  } else {
-    execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+  if(HAS_REMOTEZIP)
+  {
+    verbinfo("Attempting to get files with remotezip");
+    if(!remotezip_get_files($url))
+    {
+      define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
+      info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
+      if(HAS_WGET){
+        execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
+      } else {
+        execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+      }
+      info("Extracting ipsw");
+      execute("unzip " . FWFILE,1);
+    }
+    else
+    {
+      verbinfo("remotezip seems to have downloaded all files");
+    }
   }
-  info("Extracting ipsw");
-  execute("unzip " . FWFILE,1);
 } else {
   verbinfo("BuildManifest.plist already exists, not attempting to resume ipsw download and extraction");
 }
@@ -489,6 +514,126 @@ function is_installed($cmd){
     define($dependency_const_name, $cmd);
     return true;
   }
+}
+
+function remotezip_file_list(string $url, string $mask = null): array
+{
+	$files = array();
+	if(!filter_var($url, FILTER_VALIDATE_URL)) return $files;
+	$cache_file_path = __DIR__.'/.cache/remotezip'.sha1($url);
+	$cache_data = file_exists($cache_file_path) ? file_get_contents($cache_file_path) : null;
+	if(!strlen($cache_data))
+	{
+		// verbinfo("")
+		$stdout = execute("/usr/local/bin/remotezip -l $url");
+		if(strlen($stdout))
+		{
+			file_put_contents($cache_file_path, $stdout);
+		}
+	}
+	else
+	{
+		$stdout = $cache_data;
+	}
+	// var_dump($stdout);
+	$regex = "/(?<size>\d+?)\s+?(?<date>(?:.+?)\s+?(?:.+?))\s+?(?<path>.+)(?:$|\n)/i";
+	if(preg_match_all($regex, $stdout, $matches))
+	{
+		foreach($matches['path'] as $index => $path)
+		{
+			if($mask && (stristr($path, $mask) === false)) continue;
+			$file = array(
+				'path' => trim($path),
+				'size' => (int)$matches['size'][$index],
+				'date' => trim($matches['date'][$index])
+			);
+			$files []= $file;
+		}
+	}
+	return $files;
+}
+
+function remotezip_get_files(string $url):bool
+{
+	// create BoM and download files
+	$files = remotezip_file_list($url);
+	$dmg_files = array();
+	$files_needed = array(
+		'iBSS' => array(
+			'regex' => "/.*iBSS.*\.im4p$/i",
+			'found' => false,
+			'file' => null
+		),
+		'iBEC' => array(
+			'regex' => "/.*iBEC.*\.im4p$/i",
+			'found' => false,
+			'file' => null
+		),
+		'kernelcache' => array(
+			'regex' => "/^kernelcache.*/i",
+			'found' => false,
+			'file' => null
+		),
+    'devicetree' => array(
+      'regex' => sprintf("/.*DeviceTree\.%s\.im4p$/i", BOARDCONFIG),
+      'found' => false,
+      'file' => null
+    )
+    // 'BuildManifest' => array(
+		// 	'regex' => "/^BuildManifest\.plist$/i",
+		// 	'found' => false,
+		// 	'file' => null
+		// ),
+	);
+
+
+	foreach($files as $file)
+	{
+		$file_path = $file['path'];
+
+		if(preg_match("/.*\.dmg.*/i", $file_path))
+		{
+			$dmg_files[$file['size']] = array(
+				'regex' => null,
+				'found' => true,
+				'file' => $file
+			);
+			continue;
+		}
+
+		foreach($files_needed as $component => &$file_needed)
+		{
+			if($file_needed['found']) continue;
+			if(preg_match($file_needed['regex'], $file_path))
+			{
+				$file_needed['file'] = $file;
+				$file_needed['found'] = true;
+			}
+		}
+	}
+
+	$sizes = array_keys($dmg_files);
+	rsort($sizes);
+	unset($dmg_files[current($sizes)]);
+	$files_needed = array_merge($files_needed, $dmg_files);
+
+	// download files
+	// bad bad php (or I could pick another variable.) $file_needed simply is a reference
+	// modifying this reference will modify the item in $files_needed array as well
+	// so free the reference
+	unset($file_needed);
+	foreach($files_needed as $file_needed)
+	{
+		$file = $file_needed['file'];
+		if(!$file_needed['found'])
+    {
+      return false;
+    }
+		execute("remotezip $url {$file['path']}");
+		if(!file_exists($file['path'])) return false;
+	}
+  execute("remotezip $url BuildManifest.plist");
+	return true;
 }
 
 function add_dependency_ldid2(): bool
