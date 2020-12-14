@@ -20,6 +20,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 **************************************/
 
 define("VERBOSE",true);
+include('devices.php');
 
 $options = array(
   'd' => array(
@@ -42,18 +43,33 @@ $options = array(
     'human_text' => 'shsh2 file',
     'help' => 'shsh2 file (can be any version)'
   ),
+  'h' => array(
+    'longopt' => 'help',
+    'human_text' => null,
+    'help' => 'print this help text'
+  ),
 );
 
-if($argc < 2)
+
+$shortopts = implode(':', array_keys($options));
+$args = getopt($shortopts);
+
+if(isset($args['h']))
 {
   print_usage();
-  exit(-1);
+  exit(0);
 }
 
-$shortopts = implode(':', array_keys($options)).':';
-$args = getopt($shortopts);
+if(empty($args['d']) || empty($args['b']))
+{
+  read_device();
+}
+
 foreach($options as $opt_short => $opt)
 {
+  if(!$opt['human_text']) continue;
+  $constant_name = strtoupper($opt['longopt']);
+  if(defined($constant_name)) continue;
   if(empty($args[$opt_short]))
   {
     echo("[ERROR] {$opt['human_text']} not specified (use -$opt_short)\n\n");
@@ -288,7 +304,7 @@ if(!file_exists("devicetree.img4")){
 
 info("We now have everything needed to boot the ramdisk, just need to customize the ramdisk!");
 
-if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y. For default just press enter ")) {
+if(ask("I'm about to add utilities and modify the ramdisk.\nHave you made manual changes to ramdisk.dmg and only want me to sign it? Enter y.\nFor default just press enter ")) {
   info("Not adding utilities, just signing");
 }
 else {
@@ -460,7 +476,7 @@ function print_usage()
 {
   global $argv, $options;
   echo("Telnetd Ramdisk\n");
-  echo("Lets your boot your device with a ramdisk and connect to it using telnet\n\n");
+  echo("Lets you boot your device with a ramdisk and connect to it using telnet\n\n");
   echo("OPTIONS:\n");
   foreach($options as $opt_short => $option)
   {
@@ -471,7 +487,7 @@ function print_usage()
 }
 
 function ask($question){
-  info("\e[1m\x1B[31m{$question}\e[0m\e[0m",false);
+  echo("\e[1m\x1B[31m{$question}\e[0m\e[0m\n");
   $h = fopen("php://stdin","r");
   $answer = fgets($h);
   fclose($h);
@@ -490,6 +506,84 @@ function mount_rd(){
 
 function unmount($mountpoint){
   return execute("hdiutil detach \"{$mountpoint}\" 2>&1",1);
+}
+
+function detect_device(): ?object
+{
+	$device_properties = array();
+	$command = "irecovery -q";
+	$stdout = execute($command, true);
+	if(preg_match_all("/(.+?)\:.\s*(?:(0x[0-9a-f]+)|(.+))\n/i", $stdout, $matches))
+	{
+		foreach($matches[1] as $index => $match)
+		{
+			if(!empty($matches[2][$index]))
+			{
+				$number = hexdec(trim($matches[2][$index]));
+				$device_properties[trim($match)] = $number;
+			}
+			else
+			{
+				$device_properties[trim($match)] = trim($matches[3][$index]);
+			}
+		}
+    $device = find_device($device_properties['CPID'], $device_properties['BDID']);
+    if($device)
+    {
+      $device->ecid_raw = $device_properties['ECID'];
+      $device->ecid = strtoupper(dechex($device_properties['ECID']));
+      return $device;
+    }
+	}
+  return null;
+}
+
+function read_device(): bool
+{
+  verbinfo("Automatically detecting DFU device");
+  if( !($device = detect_device()) )
+  {
+    return false;
+  }
+  $device_text = "{$device->name} ({$device->identifier}) with boardConfig {$device->BoardConfig}\n";
+  $device_text .= "Is this the device you're making the ramdisk for?";
+  if(ask($device_text))
+  {
+    define('DEVICE', $device->identifier);
+    define('BOARDCONFIG', $device->BoardConfig);
+    define('ECID', $device->ecid);
+    return true;
+  }
+  return false;
+}
+
+function find_device(int $cpid, int $bdid): ?object
+{
+  $fw = get_firmware_data();
+  // lookup in irecovery first
+  $irecv_device = irecv_lookup_device($cpid, $bdid);
+  if($irecv_device)
+  {
+    $identifier = $irecv_device[0];
+    if(isset($fw->devices->$identifier))
+    {
+      $out_device = $fw->devices->$identifier;
+      $out_device->BoardConfig = $irecv_device[1];
+      $out_device->cpid = $irecv_device[3];
+      $out_device->bdid = $irecv_device[2];
+      $out_device->identifier = $irecv_device[0];
+      return $out_device;
+    }
+  }
+	foreach($fw->devices as $identifier => $device)
+	{
+		if( ($device->cpid === $cpid) && ($device->bdid === $bdid) )
+		{
+			$device->identifier = $identifier;
+			return $device;
+		}
+	}
+	return null;
 }
 
 function execute($command, $silent = false){
