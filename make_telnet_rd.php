@@ -21,15 +21,48 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 define("VERBOSE",true);
 
-// check args and usage
-for($i = 1; $i < 5; $i++){
-  if(!isset($argv[$i])){
-    die("Usage: php {$argv[0]} <device> <\"boardconfig\"> <version> <.shsh2 file>\nexample:\n{$argv[0]} iPhone10,6 D221AP 13.0 13.0.shsh2\nwhat's this? this thing takes you from your phone to a booted telnet ramdisk\n.shsh2 file can be from any version but needs to be from your device (ecid). Use: https://shsh.host/\n");
+$options = array(
+  'd' => array(
+    'longopt' => 'device',
+    'human_text' => 'device identifier',
+    'help' => 'Device identifier (example: iPhone10,4)'
+  ),
+  'b' => array(
+    'longopt' => 'boardconfig',
+    'human_text' => 'BoardConfig',
+    'help' => 'Boardconfig (example: d201ap)'
+  ),
+  'v' => array(
+    'longopt' => 'version',
+    'human_text' => 'iOS version',
+    'help' => 'iOS version to use as base for ramdisk'
+  ),
+  's' => array(
+    'longopt' => 'shsh2',
+    'human_text' => 'shsh2 file',
+    'help' => 'shsh2 file (can be any version)'
+  ),
+);
+
+if($argc < 2)
+{
+  print_usage();
+  exit(-1);
+}
+
+$shortopts = implode(':', array_keys($options)).':';
+$args = getopt($shortopts);
+foreach($options as $opt_short => $opt)
+{
+  if(empty($args[$opt_short]))
+  {
+    echo("[ERROR] {$opt['human_text']} not specified (use -$opt_short)\n\n");
+    print_usage();
+    exit(-1);
   }
+  define(strtoupper($opt['longopt']), $args[$opt_short]);
 }
-foreach(Array("device","boardconfig","version","shsh2") as $i => $arg){
-  define(strtoupper($arg),$argv[$i+1]);
-}
+
 define("WD","WD_" . DEVICE . "-" . BOARDCONFIG . "-" . VERSION . "_telnet_rd");
 
 // create logging handle if not VERBOSE
@@ -127,7 +160,7 @@ if(!file_exists("BuildManifest.plist")){
   verbinfo("BuildManifest.plist already exists, not attempting to resume ipsw download and extraction");
 }
 
-info("Finding ramdisk and trustcache name by trying to convert and moint them");
+info("Finding ramdisk and trustcache name by trying to convert and mount them");
 $ramdiskexisted = false;
 if(file_exists("ramdisk.dmg")){
   $ramdiskexisted = true;
@@ -400,6 +433,7 @@ if(!VERBOSE){
   fwrite(LOG,"telnet_rd_end|" . date("c") . PHP_EOL);
   fclose(LOG);
 }
+
 function curlget(string $url, array $headers = null, array $post = null, array $opt_arr = [])
 {
   //param1 -> url for cURL, param2 -> pass array to be used as header
@@ -419,6 +453,20 @@ function curlget(string $url, array $headers = null, array $post = null, array $
 
 	$json = json_decode(trim($response));
   return (is_object($json) ? $json : $response);
+}
+
+function print_usage()
+{
+  global $argv, $options;
+  echo("Telnetd Ramdisk\n");
+  echo("Lets your boot your device with a ramdisk and connect to it using telnet\n\n");
+  echo("OPTIONS:\n");
+  foreach($options as $opt_short => $option)
+  {
+    echo("  -$opt_short\t{$option['help']}\n");
+  }
+  echo("\nExample: php {$argv[0]} -d iPhone10,6 -b D221AP -v 13.0 -s 13.0.shsh2\n");
+  echo("shsh2 file can be from any version but needs to be from your device (ecid). Use: https://shsh.host/\n\n");
 }
 
 function ask($question){

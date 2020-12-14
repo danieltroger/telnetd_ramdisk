@@ -9,7 +9,7 @@ This is the same thing, reloaded. I couldn't get sshd to work, so it uses inetd 
 
 Example: `./make_telnet_rd.php iPhone10,5 D211AP 13.5 /Users/daniel/Documents/dualbootfun/4905935052021678_iPhone10\,5_d211ap_13.7-17H35_27325c8258be46e69d9ee57fa9a8fbc28b873df434e5e702a8b27999551138ae.shsh2`
 
-To boot a previously created ramdisk use the ./bootrd*.sh scripts
+To boot a previously created ramdisk, use the ./bootrd*.sh scripts
 
 It will open port 23 on the device once it's booted which you need to "proxy" over usb with iproxy
 Just follow the instructions of the script :)
