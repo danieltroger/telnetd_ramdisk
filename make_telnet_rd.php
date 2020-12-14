@@ -135,7 +135,8 @@ if(!is_dir(WD)) {mkdir(WD);}
 chdir(WD);
 
 if(!file_exists("BuildManifest.plist")){
-  $url = get_ipsw_url();
+  $url = get_ipsw_url(DEVICE, VERSION);
+  if(!$url) exit(-1);
   if(HAS_REMOTEZIP)
   {
     verbinfo("Attempting to get files with remotezip");
@@ -511,24 +512,40 @@ function execute($command, $silent = false){
   return $o;
 }
 
-function get_ipsw_url(){
+function get_firmware_data(bool $force_refresh = false): object
+{
+	$url = 'https://api.ipsw.me/v2.1/firmwares.json/condensed';
+	$cache_path = __DIR__ . "/.cache/";
+  $cache_file = $cache_path."firmwares.json";
+	if(!is_dir($cache_path)) mkdir($cache_path);
+	if(!file_exists($cache_file)) $force_refresh = true;
+	if($force_refresh)
+	{
+		execute("wget $url -O $cache_file");
+	}
+	if(!file_exists($cache_file)) return null;
+	$fw_data = file_get_contents($cache_file);
+	$fw = json_decode($fw_data);
+	unset($fw_data);
+	return $fw;
+}
+
+function get_ipsw_url(string $device, string $version): ?string
+{
   verbinfo("Getting ipsw url from ipsw.me API");
-  $versions = json_decode(file_get_contents("https://api.ipsw.me/v4/device/" . DEVICE . "?type=ipsw"),1)['firmwares'];
-  if(VERBOSE) {
-    var_dump($versions);
-  } else {
-    fwrite(LOG,print_r($versions,1));
-  }
-  $url = "";
-  foreach($versions as $version){
-    if($version['version'] == VERSION){ // lol
-      $url = $version["url"];
-      break;
+  $fw = get_firmware_data();
+  if(!isset($fw->devices->$device)) return null;
+  foreach($fw->devices->$device->firmwares as $firmware)
+  {
+    if($firmware->version == $version)
+    {
+      $url = $firmware->url;
+      verbinfo("Got url for version: $version");
+      return $url;
     }
   }
-  if(strlen($url) < 1){die("Couldn't find version " . VERSION . " for " . DEVICE . PHP_EOL);}
-  verbinfo("Got url {$url}");
-  return $url;
+  verbinfo("Couldn't get IPSW url for $version for $device");
+  return null;
 }
 
 function info($msg,$newline = true){
