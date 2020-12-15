@@ -262,6 +262,7 @@ function remotezip_get_files(string $url, string $boardconfig):bool
 {
 	execute("remotezip $url BuildManifest.plist");
 	$bom = bom_from_buildmanifest('BuildManifest.plist', $boardconfig);
+	if(!$bom) return false;
 	// create BoM and download files
 
 	foreach($bom as $image_name => $image_path)

@@ -185,28 +185,30 @@ verbinfo("Cool, you've got everything installed");
 if(!is_dir(WD)) {mkdir(WD);}
 chdir(WD);
 
-if(!file_exists("BuildManifest.plist")){
+if(!file_exists("BuildManifest.plist"))
+{
   $url = get_ipsw_url(DEVICE, VERSION);
   if(!$url) exit(-1);
+  $got_files = false;
   if(HAS_REMOTEZIP)
   {
     verbinfo("Attempting to get files with remotezip");
-    if(!remotezip_get_files($url, BOARDCONFIG))
-    {
-      define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
-      info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
-      if(HAS_WGET){
-        execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
-      } else {
-        execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
-      }
-      info("Extracting ipsw");
-      execute("unzip " . FWFILE,1);
-    }
-    else
+    if(($got_files = remotezip_get_files($url, BOARDCONFIG)))
     {
       verbinfo("remotezip seems to have downloaded all files");
     }
+  }
+  if(!$got_files)
+  {
+    define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
+    info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
+    if(HAS_WGET){
+      execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
+    } else {
+      execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+    }
+    info("Extracting ipsw");
+    execute("unzip " . FWFILE,1);
   }
 } else {
   verbinfo("BuildManifest.plist already exists, not attempting to resume ipsw download and extraction");
@@ -432,7 +434,7 @@ else {
   unmount($mountpoint);
 }
 execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
-$bootrd = dirname(__FILE__) . "/bootrd_" . VERSION . ".sh";
+$bootrd = dirname(__FILE__) . "/bootrd_" . BOARDCONFIG . '_' . VERSION . ".sh";
 info("All done, writing bootscript to bootrd.sh. Execute ./bootrd_" . VERSION . ".sh to boot.");
 if(!file_exists("../PyBoot/pyboot.py")){
   info("You have not successfully cloned pyboot, doing it for you.");
