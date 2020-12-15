@@ -22,6 +22,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 define("VERBOSE",true);
 include('devices.php');
 include('functions.php');
+include('CFPropertyList/src/CFPropertyList/CFPropertyList.php');
 
 $options = array(
   'd' => array(
@@ -157,7 +158,7 @@ if(!file_exists("BuildManifest.plist")){
   if(HAS_REMOTEZIP)
   {
     verbinfo("Attempting to get files with remotezip");
-    if(!remotezip_get_files($url))
+    if(!remotezip_get_files($url, BOARDCONFIG))
     {
       define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
       info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");

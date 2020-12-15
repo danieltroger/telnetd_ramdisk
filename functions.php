@@ -265,7 +265,25 @@ function remotezip_file_list(string $url, string $mask = null): array
 	return $files;
 }
 
-function remotezip_get_files(string $url):bool
+function remotezip_get_files(string $url, string $boardconfig):bool
+{
+	execute("remotezip $url BuildManifest.plist");
+	$bom = bom_from_buildmanifest('BuildManifest.plist', $boardconfig);
+	// create BoM and download files
+
+	foreach($bom as $image_name => $image_path)
+	{
+		execute("remotezip $url $image_path");
+		if(!file_exists($image_path))
+		{
+			unlink('BuildManifest.plist');
+			return false;
+		}
+	}
+	return true;
+}
+
+function remotezip_get_files_old(string $url):bool
 {
 	// create BoM and download files
 	$files = remotezip_file_list($url);
@@ -429,7 +447,59 @@ function add_dependency_ldid2(): bool
   return false;
 }
 
+function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool $update_buildidentity = false): ?array
+{
+  $restore_behavior = $update_buildidentity ? "Update" : "Erase";
+  verbinfo("Finding buildidentity from BuildManifest.plist");
+  try
+  {
+    $bm_plist = new CFPropertyList\CFPropertyList($buildmanifest);
+    $bm = $bm_plist->toArray();
+  }
+  catch (\Exception $e)
+  {
+    verbinfo("Cant parse BuildManifest.plist: " . $e->getMessage());
+    return null;
+  }
+  unset($bm_plist); // it's a quite big object
+  $buildidentity = null;
+  foreach($bm['BuildIdentities'] as $index => $iter_buildidentity)
+  {
+    // if(
+    //     ($iter_buildidentity['Info']['RestoreBehavior'] === 'Erase') &&
+    //     (hexdec($iter_buildidentity['ApChipID']) === $cpid) &&
+    //     (hexdec($iter_buildidentity['ApBoardID']) === $bdid )
+    //   )
+    if( ($iter_buildidentity['Info']['RestoreBehavior'] === $restore_behavior) &&
+        !(strcasecmp($iter_buildidentity['Info']['DeviceClass'], $boardconfig)) )
+    {
+      $buildidentity = $iter_buildidentity;
+      verbinfo("Selected {$buildidentity['ApChipID']} {$buildidentity['ApBoardID']} {$buildidentity['Info']['DeviceClass']}");
+      unset($bm);
+      break;
+    }
+  }
+  if(!$buildidentity) return null;
+  $bom = array(
+    'RestoreDeviceTree' => null,
+    'RestoreKernelCache' => null,
+    'RestoreRamDisk' => null,
+    'RestoreTrustCache' => null,
+    'iBEC' => null,
+    'iBSS' => null,
+  );
 
+  foreach($bom as $img => $_)
+  {
+    if(empty($buildidentity['Manifest'][$img]['Info']['Path']))
+    {
+      return false;
+    }
+    $bom[$img] = $buildidentity['Manifest'][$img]['Info']['Path'];
+    verbinfo("Found $img -> {$bom[$img]}");
+  }
+  return $bom;
+}
 
 
 
