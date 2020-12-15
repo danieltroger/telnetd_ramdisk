@@ -64,8 +64,41 @@ if(isset($args['h']))
 
 if(empty($args['d']) || empty($args['b']))
 {
-  read_device();
+  $detected_device = read_device();
+  if($detected_device)
+  {
+    define('DEVICE', $detected_device->identifier);
+    define('BOARDCONFIG', $detected_device->BoardConfig);
+    define('ECID', $detected_device->ecid);
+    if(empty($args['s']))
+    {
+      // try to get an shsh2 files using shsh.host API
+      $local_shsh_files = glob("{$detected_device->ecid_raw}*{$detected_device->BoardConfig}*.shsh2");
+      if(empty($local_shsh_files))
+      {
+        verbinfo("Trying to find a usable shsh2 file on shsh.host");
+        $shsh_file =  getSHSH2(ECID, null, BOARDCONFIG);
+        if($shsh_file && file_exists($shsh_file))
+        {
+          define('SHSH2', $shsh_file);
+        }
+      }
+      else
+      {
+        define('SHSH2', $local_shsh_files[array_rand($local_shsh_files)]);
+        verbinfo("Choosing shsh2 from local files: ". SHSH2);
+      }
+    }
+  }
 }
+
+if(empty($args['v']))
+{
+  // automatically choose versions based on success rate
+  // A11 - 13.5, 13.7, 14,2
+  // I don't have enough data on this
+}
+
 
 foreach($options as $opt_short => $opt)
 {

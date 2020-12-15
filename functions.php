@@ -91,23 +91,16 @@ function detect_device(): ?object
   return null;
 }
 
-function read_device(): bool
+function read_device(): ?object
 {
   verbinfo("Automatically detecting DFU device");
   if( !($device = detect_device()) )
   {
-    return false;
+    return null;
   }
   $device_text = "{$device->name} ({$device->identifier}) with boardConfig {$device->BoardConfig}\n";
   $device_text .= "Is this the device you're making the ramdisk for?";
-  if(ask($device_text))
-  {
-    define('DEVICE', $device->identifier);
-    define('BOARDCONFIG', $device->BoardConfig);
-    define('ECID', $device->ecid);
-    return true;
-  }
-  return false;
+	return (ask($device_text) ? $device : null);
 }
 
 function find_device(int $cpid, int $bdid): ?object
@@ -493,7 +486,7 @@ function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool
   {
     if(empty($buildidentity['Manifest'][$img]['Info']['Path']))
     {
-      return false;
+      return null;
     }
     $bom[$img] = $buildidentity['Manifest'][$img]['Info']['Path'];
     verbinfo("Found $img -> {$bom[$img]}");
@@ -501,7 +494,56 @@ function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool
   return $bom;
 }
 
+function getSHSH2(string $ecid, string $device = null, string $boardconfig = null, string $version = null): ?string
+{
+  $base_url = "https://api.arx8x.net/shsh3/list.php?ecid=$ecid";
+  $selected_files = array();
+  $data = curlget($base_url);
+  if(!is_object($data))
+  {
+    verbinfo('shsh.host sent unreadable response');
+    return null;
+  }
+  // 0 is success
+  if($data->code)
+  {
+    verbinfo("{$data->code}: {$data->message}");
+    return null;
+  }
 
+  $shsh_files = $data->files;
+  foreach($shsh_files as $shsh_file)
+  {
+    if($device && strcasecmp($shsh_file->device, $device)) continue;
+		if($boardconfig && strcasecmp($shsh_file->boardconfig, $boardconfig)) continue;
+    if($version && strcasecmp($shsh_file->version, $version)) continue;
+    if(($shsh_file->extension === 'shsh2') && $shsh_file->validity)
+    {
+      // store all valid files to an array
+      $selected_files []= $shsh_file;
+    }
+  }
+  if(!count($selected_files)) return null;
+  // select a random file from valid files
+  // in case an shsh2 file doesn't work, this will likely get another file upon retrying
+  // TODO improve this logic by saving state OR checking downloaded files and skipping over them
+	// $selected_file = $selected_files[array_rand($selected_files)];
+  $selected_file = $selected_files[0];
+
+  if(!filter_var($selected_file->url, FILTER_VALIDATE_URL))
+  {
+    verbinfo("The file url is invalid. Re-run the script");
+    return null;
+  }
+  $file_name = basename($selected_file->url);
+  execute("wget --trust-server-names {$selected_file->url} -O $file_name");
+  if(!is_file($file_name))
+  {
+    verbinfo("Couldn't download shsh2 file");
+    return null;
+  }
+  return $file_name;
+}
 
 
 
