@@ -323,8 +323,9 @@ else {
   verbinfo("adding new one");
   execute("cp -v restored_external \"{$mountpoint}/usr/local/bin/restored_external\"");
   verbinfo("Downloading executables");
-  if(!is_dir("debs")){mkdir("debs");}
-  chdir("debs");
+  $package_dir = __DIR__."/debs/";
+  if(!is_dir($package_dir)){mkdir($package_dir);}
+  chdir($package_dir);
   // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano bash sed grep htop findutils less coreutils profile.d com.bingner.snappy
   $apt_download_output = "'https://apt.bingner.com/debs/1443.00/bash_5.0.3-2_iphoneos-arm.deb' bash_5.0.3-2_iphoneos-arm.deb 480482 SHA256:078a0a6dc0619dc5db2cbb411a925ab5c08810279994714fd0343fc63f7d4072
 'https://apt.bingner.com/debs/1443.00/com.bingner.snappy_1.3.0_iphoneos-arm.deb' com.bingner.snappy_1.3.0_iphoneos-arm.deb 15438 SHA256:7e9db38dd7959de4484ee686c4cf8e31c47362c43865ae2e0466af190a49d484
@@ -380,7 +381,7 @@ else {
   execute("cp -v busybox ./staging/bin/");
   verbinfo("Syncing extracted debs into fs");
   execute("rsync --ignore-existing -avhuK --progress ./staging/ \"{$mountpoint}/\""); // this is necessary because tar overwrites symlinks smh
-  chdir("..");
+  chdir(__DIR__ . '/' . WD);
   foreach(Array("/var/root","/var/run") as $extra_directory){
     $dir = $mountpoint . $extra_directory;
     if(!is_dir($dir)){

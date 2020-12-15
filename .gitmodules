@@ -1,3 +1,6 @@
 [submodule "PyBoot"]
 	path = PyBoot
 	url = https://github.com/MatthewPierson/PyBoot.git
+[submodule "CFPropertyList"]
+	path = CFPropertyList
+	url = https://github.com/arx8x/CFPropertyList

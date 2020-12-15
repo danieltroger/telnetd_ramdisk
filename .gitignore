@@ -6,3 +6,4 @@ dependencies/
 *.der
 .cache/
 *bootrd*.sh
+debs/
