@@ -1,25 +1,25 @@
 <?php
 
-
+require_once('log.php');
 
 function curlget(string $url, array $headers = null, array $post = null, array $opt_arr = [])
 {
   //param1 -> url for cURL, param2 -> pass array to be used as header
-	$handle = curl_init();
-	curl_setopt($handle, CURLOPT_URL, $url);
-	if(isset($headers))  curl_setopt($handle, CURLOPT_HTTPHEADER, $headers) ;
-	if(!empty($post)) curl_setopt($handle, CURLOPT_POSTFIELDS, $post);
-	if(!empty($opt_arr)) curl_setopt_array($handle, $opt_arr);
+  $handle = curl_init();
+  curl_setopt($handle, CURLOPT_URL, $url);
+  if(isset($headers))  curl_setopt($handle, CURLOPT_HTTPHEADER, $headers) ;
+  if(!empty($post)) curl_setopt($handle, CURLOPT_POSTFIELDS, $post);
+  if(!empty($opt_arr)) curl_setopt_array($handle, $opt_arr);
 
-	curl_setopt($handle, CURLOPT_FOLLOWLOCATION, true);
-	curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
-	curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, false);
-	curl_setopt($handle, CURLOPT_RETURNTRANSFER, 1);
-	curl_error($handle);
-	$response = curl_exec($handle);
-	curl_close($handle);
+  curl_setopt($handle, CURLOPT_FOLLOWLOCATION, true);
+  curl_setopt($handle, CURLOPT_SSL_VERIFYPEER, false);
+  curl_setopt($handle, CURLOPT_SSL_VERIFYHOST, false);
+  curl_setopt($handle, CURLOPT_RETURNTRANSFER, 1);
+  curl_error($handle);
+  $response = curl_exec($handle);
+  curl_close($handle);
 
-	$json = json_decode(trim($response));
+  $json = json_decode(trim($response));
   return (is_object($json) ? $json : $response);
 }
 
@@ -47,7 +47,7 @@ function ask($question){
 }
 
 function mount_rd(){
-  verbinfo("Mounting ramdisk.dmg");
+  Log::writeVerboseInfo("Mounting ramdisk.dmg");
   $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1",1);
   $mount_point = explode(" ",preg_replace('/\s+/', ' ', $try_mount));
   unset($mount_point[0]);
@@ -62,23 +62,23 @@ function unmount($mountpoint){
 
 function detect_device(): ?object
 {
-	$device_properties = array();
-	$command = "irecovery -q";
-	$stdout = execute($command, true);
-	if(preg_match_all("/(.+?)\:.\s*(?:(0x[0-9a-f]+)|(.+))\n/i", $stdout, $matches))
-	{
-		foreach($matches[1] as $index => $match)
-		{
-			if(!empty($matches[2][$index]))
-			{
-				$number = hexdec(trim($matches[2][$index]));
-				$device_properties[trim($match)] = $number;
-			}
-			else
-			{
-				$device_properties[trim($match)] = trim($matches[3][$index]);
-			}
-		}
+  $device_properties = array();
+  $command = "irecovery -q";
+  $stdout = execute($command, true);
+  if(preg_match_all("/(.+?)\:.\s*(?:(0x[0-9a-f]+)|(.+))\n/i", $stdout, $matches))
+  {
+    foreach($matches[1] as $index => $match)
+    {
+      if(!empty($matches[2][$index]))
+      {
+        $number = hexdec(trim($matches[2][$index]));
+        $device_properties[trim($match)] = $number;
+      }
+      else
+      {
+        $device_properties[trim($match)] = trim($matches[3][$index]);
+      }
+    }
     if(empty($device_properties['CPID']) || empty($device_properties['BDID'])) return null;
     $device = find_device($device_properties['CPID'], $device_properties['BDID']);
     if($device)
@@ -87,20 +87,19 @@ function detect_device(): ?object
       $device->ecid = strtoupper(dechex($device_properties['ECID']));
       return $device;
     }
-	}
+  }
   return null;
 }
 
 function read_device(): ?object
 {
-  verbinfo("Automatically detecting DFU device");
   if( !($device = detect_device()) )
   {
     return null;
   }
   $device_text = "{$device->name} ({$device->identifier}) with boardConfig {$device->BoardConfig}\n";
   $device_text .= "Is this the device you're making the ramdisk for?";
-	return (ask($device_text) ? $device : null);
+  return (ask($device_text) ? $device : null);
 }
 
 function find_device(int $cpid, int $bdid): ?object
@@ -121,58 +120,51 @@ function find_device(int $cpid, int $bdid): ?object
       return $out_device;
     }
   }
-	foreach($fw->devices as $identifier => $device)
-	{
-		if( ($device->cpid === $cpid) && ($device->bdid === $bdid) )
-		{
-			$device->identifier = $identifier;
-			return $device;
-		}
-	}
-	return null;
+  foreach($fw->devices as $identifier => $device)
+  {
+    if( ($device->cpid === $cpid) && ($device->bdid === $bdid) )
+    {
+      $device->identifier = $identifier;
+      return $device;
+    }
+  }
+  return null;
 }
 
-function execute($command, $silent = false){
-  verbinfo("Executing {$command}");
+function execute($command, $show_output = false){
+  Log::writeVerboseInfo("Executing {$command}");
   $h = popen($command . " 2>&1","r");
   $o = "";
   while (!feof($h)) {
     $b = fread($h,1024);
     $o .= $b;
-    if(!VERBOSE) {
-      fwrite(LOG,$b);
-      if(!$silent){
-        echo $b;
-      }
-    } else {
-      echo $b;
-    }
   }
+  Log::main()->writeLog($o, LOGTYPE_DEBUG, $show_output);
   fclose($h);
   return $o;
 }
 
 function get_firmware_data(bool $force_refresh = false): object
 {
-	$url = 'https://api.ipsw.me/v2.1/firmwares.json/condensed';
-	$cache_path = __DIR__ . "/.cache/";
+  $url = 'https://api.ipsw.me/v2.1/firmwares.json/condensed';
+  $cache_path = __DIR__ . "/.cache/";
   $cache_file = $cache_path."firmwares.json";
-	if(!is_dir($cache_path)) mkdir($cache_path);
-	if(!file_exists($cache_file)) $force_refresh = true;
-	if($force_refresh)
-	{
-		execute("wget $url -O $cache_file");
-	}
-	if(!file_exists($cache_file)) return null;
-	$fw_data = file_get_contents($cache_file);
-	$fw = json_decode($fw_data);
-	unset($fw_data);
-	return $fw;
+  if(!is_dir($cache_path)) mkdir($cache_path);
+  if(!file_exists($cache_file)) $force_refresh = true;
+  if($force_refresh)
+  {
+    execute("wget $url -O $cache_file");
+  }
+  if(!file_exists($cache_file)) return null;
+  $fw_data = file_get_contents($cache_file);
+  $fw = json_decode($fw_data);
+  unset($fw_data);
+  return $fw;
 }
 
 function get_ipsw_url(string $device, string $version): ?string
 {
-  verbinfo("Getting ipsw url from ipsw.me API");
+  Log::writeVerboseInfo("Getting ipsw url from ipsw.me API");
   $fw = get_firmware_data();
   if(!isset($fw->devices->$device)) return null;
   foreach($fw->devices->$device->firmwares as $firmware)
@@ -180,26 +172,12 @@ function get_ipsw_url(string $device, string $version): ?string
     if($firmware->version == $version)
     {
       $url = $firmware->url;
-      verbinfo("Got url for version: $version");
+      Log::writeInfo("Got url for version: $version");
       return $url;
     }
   }
-  verbinfo("Couldn't get IPSW url for $version for $device");
+  Log::writeError("Couldn't get IPSW url for $version for $device");
   return null;
-}
-
-function info($msg,$newline = true){
-  $line = $GLOBALS['argv'][0] . ": {$msg}" . ($newline ? PHP_EOL : "");
-  echo $line;
-  if(!VERBOSE){fwrite(LOG,$line);}
-}
-
-function verbinfo($msg){
-  if(VERBOSE){
-    info($msg);
-  } else {
-    fwrite(LOG,$msg . PHP_EOL);
-  }
 }
 
 function pls_install_msg($github_project){
@@ -207,7 +185,6 @@ function pls_install_msg($github_project){
 }
 
 function is_installed($cmd){
-  verbinfo("Checking for {$cmd}");
   $dependency_const_name = strtoupper($cmd)."_PATH";
   if(shell_exec("which {$cmd}") === NULL){
     if(is_executable(__DIR__."/bin/$cmd")){
@@ -223,141 +200,141 @@ function is_installed($cmd){
 
 function remotezip_file_list(string $url, string $mask = null): array
 {
-	$files = array();
-	if(!filter_var($url, FILTER_VALIDATE_URL)) return $files;
-	$cache_file_path = __DIR__.'/.cache/remotezip'.sha1($url);
-	$cache_data = file_exists($cache_file_path) ? file_get_contents($cache_file_path) : null;
-	if(!strlen($cache_data))
-	{
-		// verbinfo("")
-		$stdout = execute("/usr/local/bin/remotezip -l $url");
-		if(strlen($stdout))
-		{
-			file_put_contents($cache_file_path, $stdout);
-		}
-	}
-	else
-	{
-		$stdout = $cache_data;
-	}
-	// var_dump($stdout);
-	$regex = "/(?<size>\d+?)\s+?(?<date>(?:.+?)\s+?(?:.+?))\s+?(?<path>.+)(?:$|\n)/i";
-	if(preg_match_all($regex, $stdout, $matches))
-	{
-		foreach($matches['path'] as $index => $path)
-		{
-			if($mask && (stristr($path, $mask) === false)) continue;
-			$file = array(
-				'path' => trim($path),
-				'size' => (int)$matches['size'][$index],
-				'date' => trim($matches['date'][$index])
-			);
-			$files []= $file;
-		}
-	}
-	return $files;
+  $files = array();
+  if(!filter_var($url, FILTER_VALIDATE_URL)) return $files;
+  $cache_file_path = __DIR__.'/.cache/remotezip'.sha1($url);
+  $cache_data = file_exists($cache_file_path) ? file_get_contents($cache_file_path) : null;
+  if(!strlen($cache_data))
+  {
+    // verbinfo("")
+    $stdout = execute("/usr/local/bin/remotezip -l $url");
+    if(strlen($stdout))
+    {
+      file_put_contents($cache_file_path, $stdout);
+    }
+  }
+  else
+  {
+    $stdout = $cache_data;
+  }
+  // var_dump($stdout);
+  $regex = "/(?<size>\d+?)\s+?(?<date>(?:.+?)\s+?(?:.+?))\s+?(?<path>.+)(?:$|\n)/i";
+  if(preg_match_all($regex, $stdout, $matches))
+  {
+    foreach($matches['path'] as $index => $path)
+    {
+      if($mask && (stristr($path, $mask) === false)) continue;
+      $file = array(
+        'path' => trim($path),
+        'size' => (int)$matches['size'][$index],
+        'date' => trim($matches['date'][$index])
+      );
+      $files []= $file;
+    }
+  }
+  return $files;
 }
 
 function remotezip_get_files(string $url, string $boardconfig):bool
 {
-	execute("remotezip $url BuildManifest.plist");
-	$bom = bom_from_buildmanifest('BuildManifest.plist', $boardconfig);
-	if(!$bom) return false;
-	// create BoM and download files
+  execute("remotezip $url BuildManifest.plist");
+  $bom = bom_from_buildmanifest('BuildManifest.plist', $boardconfig);
+  if(!$bom) return false;
+  // create BoM and download files
 
-	foreach($bom as $image_name => $image_path)
-	{
-		execute("remotezip $url $image_path");
-		if(!file_exists($image_path))
-		{
-			unlink('BuildManifest.plist');
-			return false;
-		}
-	}
-	return true;
+  foreach($bom as $image_name => $image_path)
+  {
+    execute("remotezip $url $image_path");
+    if(!file_exists($image_path))
+    {
+      unlink('BuildManifest.plist');
+      return false;
+    }
+  }
+  return true;
 }
 
 function remotezip_get_files_old(string $url):bool
 {
-	// create BoM and download files
-	$files = remotezip_file_list($url);
-	$dmg_files = array();
-	$files_needed = array(
-		'iBSS' => array(
-			'regex' => "/.*iBSS.*\.im4p$/i",
-			'found' => false,
-			'file' => null
-		),
-		'iBEC' => array(
-			'regex' => "/.*iBEC.*\.im4p$/i",
-			'found' => false,
-			'file' => null
-		),
-		'kernelcache' => array(
-			'regex' => "/^kernelcache.*/i",
-			'found' => false,
-			'file' => null
-		),
+  // create BoM and download files
+  $files = remotezip_file_list($url);
+  $dmg_files = array();
+  $files_needed = array(
+    'iBSS' => array(
+      'regex' => "/.*iBSS.*\.im4p$/i",
+      'found' => false,
+      'file' => null
+    ),
+    'iBEC' => array(
+      'regex' => "/.*iBEC.*\.im4p$/i",
+      'found' => false,
+      'file' => null
+    ),
+    'kernelcache' => array(
+      'regex' => "/^kernelcache.*/i",
+      'found' => false,
+      'file' => null
+    ),
     'devicetree' => array(
       'regex' => sprintf("/.*DeviceTree\.%s\.im4p$/i", BOARDCONFIG),
       'found' => false,
       'file' => null
     )
     // 'BuildManifest' => array(
-		// 	'regex' => "/^BuildManifest\.plist$/i",
-		// 	'found' => false,
-		// 	'file' => null
-		// ),
-	);
+    // 	'regex' => "/^BuildManifest\.plist$/i",
+    // 	'found' => false,
+    // 	'file' => null
+    // ),
+  );
 
 
-	foreach($files as $file)
-	{
-		$file_path = $file['path'];
+  foreach($files as $file)
+  {
+    $file_path = $file['path'];
 
-		if(preg_match("/.*\.dmg.*/i", $file_path))
-		{
-			$dmg_files[$file['size']] = array(
-				'regex' => null,
-				'found' => true,
-				'file' => $file
-			);
-			continue;
-		}
+    if(preg_match("/.*\.dmg.*/i", $file_path))
+    {
+      $dmg_files[$file['size']] = array(
+        'regex' => null,
+        'found' => true,
+        'file' => $file
+      );
+      continue;
+    }
 
-		foreach($files_needed as $component => &$file_needed)
-		{
-			if($file_needed['found']) continue;
-			if(preg_match($file_needed['regex'], $file_path))
-			{
-				$file_needed['file'] = $file;
-				$file_needed['found'] = true;
-			}
-		}
-	}
+    foreach($files_needed as $component => &$file_needed)
+    {
+      if($file_needed['found']) continue;
+      if(preg_match($file_needed['regex'], $file_path))
+      {
+        $file_needed['file'] = $file;
+        $file_needed['found'] = true;
+      }
+    }
+  }
 
-	$sizes = array_keys($dmg_files);
-	rsort($sizes);
-	unset($dmg_files[current($sizes)]);
-	$files_needed = array_merge($files_needed, $dmg_files);
+  $sizes = array_keys($dmg_files);
+  rsort($sizes);
+  unset($dmg_files[current($sizes)]);
+  $files_needed = array_merge($files_needed, $dmg_files);
 
-	// download files
-	// bad bad php (or I could pick another variable.) $file_needed simply is a reference
-	// modifying this reference will modify the item in $files_needed array as well
-	// so free the reference
-	unset($file_needed);
-	foreach($files_needed as $file_needed)
-	{
-		$file = $file_needed['file'];
-		if(!$file_needed['found'])
+  // download files
+  // bad bad php (or I could pick another variable.) $file_needed simply is a reference
+  // modifying this reference will modify the item in $files_needed array as well
+  // so free the reference
+  unset($file_needed);
+  foreach($files_needed as $file_needed)
+  {
+    $file = $file_needed['file'];
+    if(!$file_needed['found'])
     {
       return false;
     }
-		execute("remotezip $url {$file['path']}");
-		if(!file_exists($file['path'])) return false;
-	}
+    execute("remotezip $url {$file['path']}");
+    if(!file_exists($file['path'])) return false;
+  }
   execute("remotezip $url BuildManifest.plist");
-	return true;
+  return true;
 }
 
 function add_dependency_ldid2(): bool
@@ -385,7 +362,7 @@ function add_dependency_ldid2(): bool
       $iter_cmp_timetamp = $release_published_timestamp;
     }
   }
-  verbinfo("Selected {$latest_release->tag_name} of $repo_name");
+  Log::writeVerboseInfo("Selected {$latest_release->tag_name} of $repo_name");
   if(empty($latest_release->assets))
   {
     return false;
@@ -444,7 +421,7 @@ function add_dependency_ldid2(): bool
 function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool $update_buildidentity = false): ?array
 {
   $restore_behavior = $update_buildidentity ? "Update" : "Erase";
-  verbinfo("Finding buildidentity from BuildManifest.plist");
+  Log::writeInfo("Finding buildidentity from BuildManifest.plist");
   try
   {
     $bm_plist = new CFPropertyList\CFPropertyList($buildmanifest);
@@ -452,7 +429,7 @@ function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool
   }
   catch (\Exception $e)
   {
-    verbinfo("Cant parse BuildManifest.plist: " . $e->getMessage());
+    Log::writeError("Cant parse BuildManifest.plist: " . $e->getMessage());
     return null;
   }
   unset($bm_plist); // it's a quite big object
@@ -465,10 +442,10 @@ function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool
     //     (hexdec($iter_buildidentity['ApBoardID']) === $bdid )
     //   )
     if( ($iter_buildidentity['Info']['RestoreBehavior'] === $restore_behavior) &&
-        !(strcasecmp($iter_buildidentity['Info']['DeviceClass'], $boardconfig)) )
+    !(strcasecmp($iter_buildidentity['Info']['DeviceClass'], $boardconfig)) )
     {
       $buildidentity = $iter_buildidentity;
-      verbinfo("Selected {$buildidentity['ApChipID']} {$buildidentity['ApBoardID']} {$buildidentity['Info']['DeviceClass']}");
+      Log::writeInfo("Selected {$buildidentity['ApChipID']} {$buildidentity['ApBoardID']} {$buildidentity['Info']['DeviceClass']}");
       unset($bm);
       break;
     }
@@ -490,7 +467,7 @@ function bom_from_buildmanifest(string $buildmanifest, string $boardconfig, bool
       return null;
     }
     $bom[$img] = $buildidentity['Manifest'][$img]['Info']['Path'];
-    verbinfo("Found $img -> {$bom[$img]}");
+    Log::writeInfo("Found $img -> {$bom[$img]}");
   }
   return $bom;
 }
@@ -502,13 +479,13 @@ function getSHSH2(string $ecid, string $device = null, string $boardconfig = nul
   $data = curlget($base_url);
   if(!is_object($data))
   {
-    verbinfo('shsh.host sent unreadable response');
+    Log::writeError('shsh.host sent unreadable response');
     return null;
   }
   // 0 is success
   if($data->code)
   {
-    verbinfo("{$data->code}: {$data->message}");
+    Log::writeError("{$data->code}: {$data->message}");
     return null;
   }
 
@@ -516,7 +493,7 @@ function getSHSH2(string $ecid, string $device = null, string $boardconfig = nul
   foreach($shsh_files as $shsh_file)
   {
     if($device && strcasecmp($shsh_file->device, $device)) continue;
-		if($boardconfig && strcasecmp($shsh_file->boardconfig, $boardconfig)) continue;
+    if($boardconfig && strcasecmp($shsh_file->boardconfig, $boardconfig)) continue;
     if($version && strcasecmp($shsh_file->version, $version)) continue;
     if(($shsh_file->extension === 'shsh2') && $shsh_file->validity)
     {
@@ -528,22 +505,28 @@ function getSHSH2(string $ecid, string $device = null, string $boardconfig = nul
   // select a random file from valid files
   // in case an shsh2 file doesn't work, this will likely get another file upon retrying
   // TODO improve this logic by saving state OR checking downloaded files and skipping over them
-	// $selected_file = $selected_files[array_rand($selected_files)];
-  $selected_file = $selected_files[0];
+  // $selected_file = $selected_files[array_rand($selected_files)];
+  $selected_file = end($selected_files);
 
   if(!filter_var($selected_file->url, FILTER_VALIDATE_URL))
   {
-    verbinfo("The file url is invalid. Re-run the script");
+    Log::writeError("The file url is invalid. Re-run the script");
     return null;
   }
   $file_name = basename($selected_file->url);
   execute("wget --trust-server-names {$selected_file->url} -O $file_name");
   if(!is_file($file_name))
   {
-    verbinfo("Couldn't download shsh2 file");
+    Log::writeError("Couldn't download shsh2 file");
     return null;
   }
   return $file_name;
+}
+
+function writelog(string $log_entry, int $log_type = 0, $write_stdout = true)
+{
+  $log_level = defined('LOG_LEVEL') ? LOG_LEVEL : 1;
+  $sym = '+';
 }
 
 
