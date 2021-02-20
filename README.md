@@ -5,9 +5,23 @@ Remember [ssh_rd by msftguy](https://github.com/msftguy/ssh-rd)? You could simpl
 This is the same thing, reloaded. I couldn't get sshd to work, so it uses inetd with telnetd instead. If you check the code there's an easy way to add whatever .deb you like by rerunning the apt-download command and pasting the result in the code. (Search the code for `apt download`)
 
 ## Usage
-`./make_telnet_rd.php <device> <boardconfig> <version> <.shsh2 file location>`
 
-Example: `./make_telnet_rd.php iPhone10,5 D211AP 13.5 /Users/daniel/Documents/dualbootfun/4905935052021678_iPhone10\,5_d211ap_13.7-17H35_27325c8258be46e69d9ee57fa9a8fbc28b873df434e5e702a8b27999551138ae.shsh2`
+To download/install:
+
+`git clone https://github.com/danieltroger/telnetd_ramdisk.git --recursive`
+
+```
+OPTIONS:
+  -d	Device identifier (example: iPhone10,4)
+  -b	Boardconfig (example: d201ap)
+  -v	iOS version to use as base for ramdisk
+  -s	shsh2 file (can be any version)
+  -h	print this help text
+
+```
+
+
+Example: `./make_telnet_rd.php -d iPhone10,5 -b D211AP -v 13.5 -s /Users/daniel/Documents/dualbootfun/4905935052021678_iPhone10\,5_d211ap_13.7-17H35_27325c8258be46e69d9ee57fa9a8fbc28b873df434e5e702a8b27999551138ae.shsh2`
 
 To boot a previously created ramdisk, use the ./bootrd*.sh scripts
 
@@ -72,6 +86,7 @@ img4lib, img4tool, ldid2, autodecrypt, kairos, libusbmuxd, Kernel64Patcher, libi
 
 # Credits
 
+* @arx8x for his contributions of bug fixes, improvements and a big speed up to the project and [his fork](https://github.com/arx8x/telnetd_ramdisk) which I shamelessly merged into my repo
 * Huge thanks to [mcg29](https://github.com/mcg29), without his help and info I would have given up a long time ago. [twitter](https://twitter.com/mcg29_)
 * Also a big thanks to [Exploit3d](https://twitter.com/exploit3dguy) for the info about the seputil commands, mounting the user fs would have been hard without his help.
 * Thanks to [Sam Bingner](https://github.com/sbingner) for the inetutils package, we wouldn't have telnetd on iOS without him. Also he inspired me to write script this by asking for it. [twitter](https://twitter.com/sbingner)
