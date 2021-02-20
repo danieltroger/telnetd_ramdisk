@@ -18,90 +18,212 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 **************************************/
+require('log.php');
+require('devices.php');
+require('functions.php');
+require('CFPropertyList/src/CFPropertyList/CFPropertyList.php');
 
-define("VERBOSE",true);
+$instance = sha1(time());
+Log::main()->writeLog("telnet_rd instance: $instance - " . date('c'), 0, false);
 
-// check args and usage
-for($i = 1; $i < 5; $i++){
-  if(!isset($argv[$i])){
-    die("Usage: php {$argv[0]} <device> <\"boardconfig\"> <version> <.shsh2 file>\nexample:\n{$argv[0]} iPhone10,6 D221AP 13.0 13.0.shsh2\nwhat's this? this thing takes you from your phone to a booted telnet ramdisk\n.shsh2 file can be from any version but needs to be from your device (ecid). Use: https://shsh.host/\n");
+$options = array(
+  'd' => array(
+    'longopt' => 'device',
+    'human_text' => 'device identifier',
+    'help' => 'Device identifier (example: iPhone10,4)'
+  ),
+  'b' => array(
+    'longopt' => 'boardconfig',
+    'human_text' => 'BoardConfig',
+    'help' => 'Boardconfig (example: d201ap)'
+  ),
+  'v' => array(
+    'longopt' => 'version',
+    'human_text' => 'iOS version',
+    'help' => 'iOS version to use as base for ramdisk'
+  ),
+  's' => array(
+    'longopt' => 'shsh2',
+    'human_text' => 'shsh2 file',
+    'help' => 'shsh2 file (can be any version)'
+  ),
+  'h' => array(
+    'longopt' => 'help',
+    'human_text' => null,
+    'help' => 'print this help text'
+  ),
+);
+
+
+$shortopts = implode(':', array_keys($options));
+$args = getopt($shortopts);
+
+if(isset($args['h']))
+{
+  print_usage();
+  exit(0);
+}
+
+if(empty($args['d']) || empty($args['b']))
+{
+  Log::writeInfo("Detecting DFU device");
+  $detected_device = read_device();
+  if($detected_device)
+  {
+    define('DEVICE', $detected_device->identifier);
+    define('BOARDCONFIG', $detected_device->BoardConfig);
+    define('ECID', $detected_device->ecid);
+    if(empty($args['s']))
+    {
+      // try to get an shsh2 files using shsh.host API
+      // TODO make getSHSH2 function get a ticket for any ECID but
+      // with matching BNCH length.
+      // OR
+      // bundle two shsh2 in this project, eliminating the need to get an shsh2 file
+      $local_shsh_files = glob("{$detected_device->ecid_raw}*{$detected_device->BoardConfig}*.shsh2");
+      if(empty($local_shsh_files))
+      {
+        Log::writeInfo("Trying to find a usable shsh2 file on shsh.host");
+        $shsh_file =  getSHSH2(ECID, null, BOARDCONFIG);
+        if($shsh_file && file_exists($shsh_file))
+        {
+          define('SHSH2', $shsh_file);
+        }
+      }
+      else
+      {
+        define('SHSH2', $local_shsh_files[array_rand($local_shsh_files)]);
+        Log::writeInfo("Choosing shsh2 from local files: ". SHSH2);
+      }
+    }
   }
 }
-foreach(Array("device","boardconfig","version","shsh2") as $i => $arg){
-  define(strtoupper($arg),$argv[$i+1]);
-}
-define("WD",DEVICE . "-" . BOARDCONFIG . "-" . VERSION . "_telnet_rd");
 
-// create logging handle if not VERBOSE
-if(!VERBOSE){
-  define("LOG",fopen("log.txt","a"));
-  fwrite(LOG,"telnet_rd_run|" . date("c") . PHP_EOL);
+if(empty($args['v']))
+{
+  // automatically choose versions based on success rate
+  // A11 - 13.5, 13.7, 14,2
+  // I don't have enough data on this
 }
 
-verbinfo("checking for .shsh2 file");
-if(!file_exists(SHSH2)){
-  die(".shsh2 file doesn't exist or isn't readable" . PHP_EOL);
-}
-define("SHSH2_ABS",realpath(SHSH2)); // I shouldn't have started using constants lol
 
-verbinfo("Checking for dependencies");
+foreach($options as $opt_short => $opt)
+{
+  if(!$opt['human_text']) continue;
+  $constant_name = strtoupper($opt['longopt']);
+  if(defined($constant_name)) continue;
+  if(empty($args[$opt_short]))
+  {
+    Log::writeError("[ERROR] {$opt['human_text']} not specified (use -$opt_short)\n\n");
+    print_usage();
+    exit(-1);
+  }
+  define(strtoupper($opt['longopt']), $args[$opt_short]);
+}
+
+define("WD","WD_" . DEVICE . "-" . BOARDCONFIG . "-" . VERSION . "_telnet_rd");
+Log::writeVerboseInfo("Working directory set as " . WD);
+
+if(!file_exists(SHSH2))
+{
+  Log::writeError(".shsh2 file doesn't exist or isn't readable" . PHP_EOL);
+  exit(-1);
+}
+define("SHSH2_ABS",realpath(SHSH2)); // I shouldn't have started using constants lol (I agree - ARX8x)
+
+Log::writeInfo("Checking for dependencies");
 if(!is_installed("diskutil") || !is_installed("hdiutil") || !is_installed("unzip") || !is_installed("plutil") || !is_installed("curl")){
-  die("Couldn't find diskutil, unzip, plutil, curl or hdiutil. Please use a mac." . PHP_EOL);
+  Log::writeError("Couldn't find diskutil, unzip, plutil, curl or hdiutil. Please use a mac." . PHP_EOL);
+  exit(-1);
 }
-if(!is_installed("img4")){
-  die(pls_install_msg("https://github.com/xerub/img4lib"));
-}
-if(!is_installed("img4tool")){
-  die(pls_install_msg("https://github.com/tihmstar/img4tool"));
-}
-if(!is_installed("ldid2")){
-  die(pls_install_msg("https://github.com/xerub/ldid/releases/"));
-}
-if(!is_installed("autodecrypt")){
-  die(pls_install_msg("https://github.com/matteyeux/autodecrypt"));
-}
-if(!is_installed("kairos")){
-  die(pls_install_msg("https://github.com/dayt0n/kairos"));
-}
-if(!is_installed("iproxy")){
-  die(pls_install_msg("https://github.com/libimobiledevice/libusbmuxd"));
-}
-if(!is_installed("Kernel64Patcher")){
-  die(pls_install_msg("https://github.com/Ralph0045/Kernel64Patcher"));
-}
-if(!is_installed("irecovery")){
-  echo(pls_install_msg("https://github.com/libimobiledevice/libirecovery"));
-  info("You can also install it with brew install libimobiledevice or something if you're lazy");
-  exit;
-}
-define("HAS_WGET",is_installed("wget"));
-verbinfo("Cool, you've got everything installed");
+$dependencies = array(
+  "img4" => "https://github.com/xerub/img4lib",
+  "img4tool" => "https://github.com/tihmstar/img4tool",
+  "ldid2"=>"https://github.com/xerub/ldid/releases/",
+  "autodecrypt" => "https://github.com/matteyeux/autodecrypt",
+  "kairos" => "https://github.com/dayt0n/kairos",
+  "iproxy" => "https://github.com/libimobiledevice/libusbmuxd",
+  "Kernel64Patcher" => "https://github.com/Ralph0045/Kernel64Patcher",
+  "irecovery" => "https://github.com/libimobiledevice/libirecovery",
+  "remotezip" => "https://pypi.org/project/remotezip/"
+);
 
+foreach($dependencies as $dependency_cmd => $dependency_source)
+{
+  Log::writeInfo("Checking dependency: $dependency_cmd");
+  $dependency_available = is_installed($dependency_cmd);
+  if($dependency_cmd === 'remotezip')
+  {
+    define("HAS_REMOTEZIP", $dependency_available);
+    if(!HAS_REMOTEZIP)
+    {
+      Log::writeInfo("remotezip is a python library that allows you to download files from ipsw without downloading the entire ipsw. It's not necessary but it'll save time and resources\n");
+      // since it's an optional dependency, skip over it even if it doesn't exist
+      continue;
+    }
+  }
+
+  if(!$dependency_available)
+  {
+    // attempt to automatically build the dependency
+    $dependency_function = "add_dependency_$dependency_cmd";
+    if(is_callable($dependency_function))
+    {
+      Log::writeInfo("Attempting to install $dependency_cmd");
+      $dependency_function();
+      if(is_installed($dependency_cmd)) continue;
+    }
+    Log::writeError(pls_install_msg($dependency_source));
+    if($dependency_cmd === 'irecovery')
+    {
+      Log::writeInfo("You can also install it with brew install libimobiledevice or something if you're lazy");
+    }
+    die();
+  }
+}
+
+define("HAS_WGET",is_installed("wget"));
+Log::writeInfo("Dependency check completed\n");
 
 // info("Creating & entering working directory if it doesn't exist: " . WD);
 if(!is_dir(WD)) {mkdir(WD);}
 chdir(WD);
 
-if(!file_exists("BuildManifest.plist")){
-  define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
-  info("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
-  $url = get_ipsw_url();
-  if(HAS_WGET){
-    execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
-  } else {
-    execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+if(!file_exists("BuildManifest.plist"))
+{
+  $url = get_ipsw_url(DEVICE, VERSION);
+  if(!$url) exit(-1);
+  $got_files = false;
+  if(HAS_REMOTEZIP)
+  {
+    Log::writeInfo("Attempting to get files with remotezip");
+    if(($got_files = remotezip_get_files($url, BOARDCONFIG)))
+    {
+      Log::writeInfo("remotezip seems to have downloaded all files");
+    }
   }
-  info("Extracting ipsw");
-  execute("unzip " . FWFILE,1);
+  if(!$got_files)
+  {
+    define("FWFILE",DEVICE . "_" . VERSION . ".ipsw");
+    Log::writeInfo("Downloading ipsw (it will continue/just finish if it's already (partially) there)");
+    if(HAS_WGET){
+      execute("wget -q --show-progress --progress=bar:force \"" . addslashes($url) . "\" -cO " . FWFILE . "");
+    } else {
+      execute("curl \"" . addslashes($url) . "\" -o " . FWFILE . " -C -");
+    }
+    Log::writeInfo("Extracting ipsw");
+    execute("unzip " . FWFILE,1);
+  }
 } else {
-  verbinfo("BuildManifest.plist already exists, not attempting to resume ipsw download and extraction");
+  Log::writeInfo("BuildManifest.plist already exists, not attempting to resume ipsw download and extraction");
 }
 
-info("Finding ramdisk and trustcache name by trying to convert and moint them");
+// TODO use bom to determine files to extract and use
+Log::writeInfo("Finding ramdisk and trustcache name by trying to convert and mount them");
 $ramdiskexisted = false;
 if(file_exists("ramdisk.dmg")){
   $ramdiskexisted = true;
-  verbinfo("ramdisk.dmg already exists, renaming it as we still need to know its original name");
+  Log::writeVerboseInfo("ramdisk.dmg already exists, renaming it as we still need to know its original name");
   if(file_exists("ramdisk.dmg.orig")){die("ramdisk.dmg.orig exists, please only run one instance of this program at once or delete ramdisk.dmg.orig" . PHP_EOL);}
   rename("ramdisk.dmg","ramdisk.dmg.orig");
   if(!file_exists("ramdisk.dmg.orig")){die("rename failed" . PHP_EOL);}
@@ -114,23 +236,23 @@ foreach(glob("*.dmg") as $dmg){
 sort($sizes);
 for($i = 0; $i<sizeof($sizes);$i++){
   $maybe = $dmgs[$sizes[$i]];
-  verbinfo("trying to convert {$maybe} to .dmg");
+  Log::writeVerboseInfo("trying to convert {$maybe} to .dmg");
   $try = execute("img4 -i {$maybe} -o ramdisk.dmg 2>&1",1);
   if($try === "rdsk\n"){
     $mount_point = mount_rd();
-    verbinfo("Mounted potential ramdisk at \"{$mount_point}\"");
-    verbinfo("Unmounting again because we don't need it right now");
+    Log::writeVerboseInfo("Mounted potential ramdisk at \"{$mount_point}\"");
+    Log::writeVerboseInfo("Unmounting again because we don't need it right now");
     unmount($mount_point);
     if(strpos($mount_point,"CustomerRamDisk") !== false){
-      info("Found ramdisk to be {$maybe}");
+      Log::writeInfo("Found ramdisk to be {$maybe}");
       define("RAMDISK",$maybe);
       break;
     } else {
-      verbinfo("{$maybe} can't be it, because it mounts wrong");
+      Log::writeVerboseInfo("{$maybe} can't be it, because it mounts wrong");
       @unlink("ramdisk.dmg");
     }
   } else {
-    verbinfo("{$maybe} can't be it, because img4 doesn't want to convert it");
+    Log::writeVerboseInfo("{$maybe} can't be it, because img4 doesn't want to convert it");
     @unlink("ramdisk.dmg");
   }
 }
@@ -138,112 +260,131 @@ if($ramdiskexisted){
   unlink("ramdisk.dmg");
   rename("ramdisk.dmg.orig","ramdisk.dmg");
 }
-if(!defined("RAMDISK")){die("Couldn't find ramdisk\n");}
+
+if(!defined("RAMDISK"))
+{
+  Log::writeError("Couldn't find ramdisk\n");
+  exit(-1);
+}
 
 
 
-info("Beginning to patch and sign things");
+Log::writeInfo("\nBeginning to patch and sign things");
+
+//kernelcache
 if(!file_exists("kcache.raw")){
+  Log::writeInfo("converting kernelcache");
   execute("img4 -i kernelcache.* -o kcache.raw");
 } else {
-  verbinfo("kcache.raw already exists, not converting kernelcache");
+  Log::writeVerboseInfo("kcache.raw already exists, not converting kernelcache");
 }
 if(!file_exists("kcache.patched")){
+  Log::writeInfo("patching signature checks on kernelcache");
   execute("Kernel64Patcher kcache.raw kcache.patched -a");
 } else {
-  verbinfo("kcache.patched already exists, skipping step");
+  Log::writeVerboseInfo("kcache.patched already exists, skipping step");
 }
 if(!file_exists("IM4M")){
+  Log::writeInfo("Converting shshs2 to IM4M");
   execute("img4tool -e -s " . SHSH2_ABS . " -m IM4M");
 } else {
-  verbinfo("IM4M already exists, skipping conversion of .shsh2 into it");
+  Log::writeVerboseInfo("IM4M already exists, skipping conversion of .shsh2 into it");
 }
 if(!file_exists("kernelcache.im4p")){
+  Log::writeInfo("Compressing kernelcache back");
   execute("img4tool -c kernelcache.im4p -t rkrn kcache.patched --compression complzss");
 } else {
-  verbinfo("kernelcache.im4p already exists, not compressing kernel again");
+  Log::writeVerboseInfo("kernelcache.im4p already exists, not compressing kernel again");
 }
 if(!file_exists("kernelcache.img4")){
+  Log::writeInfo("Stitching IM4M to kernelcache");
   execute("img4tool -c kernelcache.img4 -p kernelcache.im4p -m IM4M");
 } else {
-  verbinfo("kernelcache.img4 already exists, skipping packing into .img4");
+  Log::writeVerboseInfo("kernelcache.img4 already exists, skipping packing into .img4");
 }
 $ibss = glob("iBSS.*.RELEASE.bin");
 if(sizeof($ibss) == 0){
+  Log::writeInfo("Decrypting iBSS");
   execute("autodecrypt -f iBSS -i " . VERSION . " -d " . DEVICE);
 } else {
-  verbinfo("Some file matching the pattern iBSS.*.RELEASE.bin already exists, skipping iBSS downloading and decrypting");
+  Log::writeVerboseInfo("Some file matching the pattern iBSS.*.RELEASE.bin already exists, skipping iBSS downloading and decrypting");
 }
 if(!file_exists("iBSS.patched")){
+  Log::writeInfo("Patching iBSS");
   execute("kairos iBSS.*.RELEASE.bin iBSS.patched");
 } else {
-  verbinfo("iBSS.patched already exists, not patching");
+  Log::writeVerboseInfo("iBSS.patched already exists, not patching");
 }
 $ibec = glob("iBEC.*.RELEASE.bin");
 if(sizeof($ibec) == 0){
+  Log::writeInfo("Decrypting iBEC");
   execute("autodecrypt -f iBEC -i " . VERSION . " -d " . DEVICE);
 } else {
-  verbinfo("Some file matching the pattern iBEC.*.RELEASE.im4p already exists, skipping iBEC downloading and decrypting");
+  Log::writeVerboseInfo("Some file matching the pattern iBEC.*.RELEASE.im4p already exists, skipping iBEC downloading and decrypting");
 }
 if(!file_exists("iBEC.patched")){
+  Log::writeInfo("Patching iBEC");
   execute("kairos iBEC.*.RELEASE.bin iBEC.patched -b \"rd=md0 -v\"");
 } else {
-  verbinfo("iBEC.patched already exists, not patching");
+  Log::writeVerboseInfo("iBEC.patched already exists, not patching");
 }
 if(!file_exists("iBSS.img4")){
   execute("img4 -i iBSS.patched -o iBSS.img4 -M IM4M -A -T ibss");
+  Log::writeInfo("Stitching IM4M to iBSS");
 } else {
-  verbinfo("iBSS.patched already exists, not signing patched iBSS");
+  Log::writeVerboseInfo("iBSS.patched already exists, not signing patched iBSS");
 }
 if(!file_exists("iBEC.img4")){
+  Log::writeInfo("Stitching IM4M to iBEC");
   execute("img4 -i iBEC.patched -o iBEC.img4 -M IM4M -A -T ibec");
 } else {
-  verbinfo("iBEC.patched already exists, not signing patched iBEC");
+  Log::writeVerboseInfo("iBEC.patched already exists, not signing patched iBEC");
 }
 if(!file_exists("trustcache.img4")){
+  Log::writeInfo("Stitching IM4M to trustcache");
   execute("img4 -i Firmware/" . RAMDISK .".trustcache -o trustcache.img4 -M IM4M");
 } else {
-  verbinfo("trustcache.img4 already exists, not signing");
+  Log::writeVerboseInfo("trustcache.img4 already exists, not signing");
 }
 if(!file_exists("devicetree.img4")){
   $orig_devicetree = "Firmware/all_flash/DeviceTree." . strtolower(BOARDCONFIG) . ".im4p";
   if(!file_exists($orig_devicetree)){
-    info("Couldn't find devicetree at {$orig_devicetree}, selecting closest other one");
+    Log::writeInfo("Couldn't find devicetree at {$orig_devicetree}, selecting closest other one");
     foreach(glob("Firmware/all_flash/DeviceTree.*.im4p") as $devicetree){
       $potential_devicetrees[$devicetree] = levenshtein($devicetree,BOARDCONFIG);
     }
     $orig_devicetree = array_search(min($potential_devicetrees),$potential_devicetrees);
-    info("Selected {$orig_devicetree} instead");
+    Log::writeInfo("Selected {$orig_devicetree} instead");
   }
   execute("img4 -i {$orig_devicetree} -o devicetree.img4 -M IM4M -T rdtr");
 } else {
-  verbinfo("devicetree.img4 already exists, skipping singing");
+  Log::writeVerboseInfo("devicetree.img4 already exists, skipping singing");
 }
 
 
+Log::writeInfo("\nWe now have everything needed to boot the ramdisk, just need to customize the ramdisk!");
 
-info("We now have everything needed to boot the ramdisk, just need to customize the ramdisk!");
-
-if(ask("I'm about to add utilities and modify the ramdisk. Have you made manual changes to ramdisk.dmg and only want me to sign it? Enter y. For default just press enter ")) {
-  info("Not adding utilities, just signing");
+if(ask("I'm about to add utilities and modify the ramdisk.\nHave you made manual changes to ramdisk.dmg and only want me to sign it? Enter y.\nFor default just press enter ")) {
+  Log::writeInfo("Not adding utilities, just signing");
 }
 else {
-  verbinfo("enlarging ramdisk");
+  Log::writeVerboseInfo("enlarging ramdisk");
   execute("hdiutil resize -size 150MB ramdisk.dmg");
   $mountpoint = mount_rd();
-  info("Mounted RAMdisk at {$mountpoint} and now adding tools. Downloading may take a while");
+  Log::writeInfo("Mounted RAMdisk at {$mountpoint} and now adding tools");
   execute("xcrun -sdk iphoneos clang -arch arm64 " . dirname(__FILE__) . "/resources/restored_external.c -o restored_external");
-  execute("ldid2 -S restored_external");
-  verbinfo("compiled restored_external");
+  execute(LDID2_PATH." -S restored_external");
+  Log::writeVerboseInfo("compiled restored_external");
   if(!file_exists("{$mountpoint}/usr/local/bin/restored_external_original")){
-    verbinfo("renaming old one");
+    Log::writeVerboseInfo("renaming old one");
     execute("mv -v \"{$mountpoint}/usr/local/bin/restored_external\" \"{$mountpoint}/usr/local/bin/restored_external_original\"",1);
   }
-  verbinfo("adding new one");
+  Log::writeVerboseInfo("adding new one");
   execute("cp -v restored_external \"{$mountpoint}/usr/local/bin/restored_external\"");
-  verbinfo("Downloading executables");
-  if(!is_dir("debs")){mkdir("debs");}
-  chdir("debs");
+  Log::writeVerboseInfo("Downloading executables");
+  $package_dir = __DIR__."/debs/";
+  if(!is_dir($package_dir)){mkdir($package_dir);}
+  chdir($package_dir);
   // apt download --print-uris inetutils ncurses ncurses5-libs readline coreutils-bin firmware-sbin system-cmds nano bash sed grep htop findutils less coreutils profile.d com.bingner.snappy
   $apt_download_output = "'https://apt.bingner.com/debs/1443.00/bash_5.0.3-2_iphoneos-arm.deb' bash_5.0.3-2_iphoneos-arm.deb 480482 SHA256:078a0a6dc0619dc5db2cbb411a925ab5c08810279994714fd0343fc63f7d4072
 'https://apt.bingner.com/debs/1443.00/com.bingner.snappy_1.3.0_iphoneos-arm.deb' com.bingner.snappy_1.3.0_iphoneos-arm.deb 15438 SHA256:7e9db38dd7959de4484ee686c4cf8e31c47362c43865ae2e0466af190a49d484
@@ -265,13 +406,13 @@ else {
   foreach(explode("\n",$apt_download_output) as $line){
     $url = explode("'",$line)[1];
     if(HAS_WGET){
-      execute("wget --trust-server-names -c \"{$url}\"",1);
+      execute("wget --trust-server-names -c \"{$url}\"");
     } else {
       execute("curl -C - -O \"{$url}\"");
     }
   }
   $debs = glob("*.deb");
-  verbinfo("Extracting debs " . implode(", ",$debs));
+  Log::writeVerboseInfo("Extracting debs " . implode(", ",$debs));
   if(!is_dir("staging")){
     mkdir("staging");
   }
@@ -285,7 +426,7 @@ else {
     execute("tar -C ../staging/ -xzvkf data.*",1);
     chdir("..");
   }
-  verbinfo("Downloading and installing busybox (if Sam Bingner) still hosts it");
+  Log::writeVerboseInfo("Downloading and installing busybox (if Sam Bingner) still hosts it");
   if(HAS_WGET){
     execute("wget https://www.bingner.com/busybox.gz -c -O busybox.gz");
   } else {
@@ -293,13 +434,13 @@ else {
   }
   execute("cat busybox.gz|gzip -d > busybox");
   execute("chmod +xxx busybox");
-  execute("ldid2 -S busybox");
-  execute("ldid2 -S ./staging/usr/bin/htop");
-  execute("ldid2 -S ./staging/usr/bin/find"); // idk if this makes them not die with Killed: 9 and why they do it otherwise
+  execute(LDID2_PATH." -S busybox");
+  execute(LDID2_PATH." -S ./staging/usr/bin/htop");
+  execute(LDID2_PATH." -S ./staging/usr/bin/find"); // idk if this makes them not die with Killed: 9 and why they do it otherwise
   execute("cp -v busybox ./staging/bin/");
-  verbinfo("Syncing extracted debs into fs");
+  Log::writeVerboseInfo("Syncing extracted debs into fs");
   execute("rsync --ignore-existing -avhuK --progress ./staging/ \"{$mountpoint}/\""); // this is necessary because tar overwrites symlinks smh
-  chdir("..");
+  chdir(__DIR__ . '/' . WD);
   foreach(Array("/var/root","/var/run") as $extra_directory){
     $dir = $mountpoint . $extra_directory;
     if(!is_dir($dir)){
@@ -308,7 +449,7 @@ else {
   }
   foreach(glob(dirname(__FILE__) . "/resources/etc/*") as $etcfile){
     $to = $mountpoint . "/etc/" . basename($etcfile);
-    verbinfo("copying {$etcfile} to {$to}");
+    Log::writeVerboseInfo("copying {$etcfile} to {$to}");
     execute("cp -v \"{$etcfile}\" \"{$to}\"",1);
   }
   // execute("img4tool -c sep-firmware.img4 -p Firmware/all_flash/sep-firmware.d211.RELEASE.im4p -m IM4M"); // this will 99% never work, leaving it here as legacy. A missing sep-firmware.img4 can't be recovered.
@@ -316,10 +457,10 @@ else {
   unmount($mountpoint);
 }
 execute("img4 -i ramdisk.dmg -o ramdisk -M IM4M -A -T rdsk");
-$bootrd = dirname(__FILE__) . "/bootrd_" . VERSION . ".sh";
-info("All done, writing bootscript to bootrd.sh. Execute ./bootrd_" . VERSION . ".sh to boot.");
+$bootrd = dirname(__FILE__) . "/bootrd_" . BOARDCONFIG . '_' . VERSION . ".sh";
+Log::writeInfo("All done, writing bootscript to bootrd.sh. Execute ./bootrd_" . VERSION . ".sh to boot.");
 if(!file_exists("../PyBoot/pyboot.py")){
-  info("You have not successfully cloned pyboot, doing it for you.");
+  Log::writeInfo("You have not successfully cloned pyboot, doing it for you.");
   chdir("../PyBoot/");
   if(HAS_WGET){
     execute("wget -c https://github.com/MatthewPierson/PyBoot/archive/master.zip",1);
@@ -330,8 +471,9 @@ if(!file_exists("../PyBoot/pyboot.py")){
   execute("mv -v PyBoot-master/* .",1);
   execute("rm -rvf PyBoot-master",1);
   unlink("master.zip");
-  info("Try cloning with --recursive next time.");
+  Log::writeInfo("Try cloning with --recursive next time.");
 }
+Log::writeInfo("\nPreparing boot script: $bootrd");
 file_put_contents($bootrd,"#!/usr/bin/env bash
 cd PyBoot
 ./pyboot.py -p
@@ -366,89 +508,8 @@ if(ask("Cool, now pray it worked. Enter yes to boot directly (you need to be in 
   chdir(dirname(__FILE__));
   execute($bootrd);
 }
-if(!VERBOSE){
-  fwrite(LOG,"telnet_rd_end|" . date("c") . PHP_EOL);
-  fclose(LOG);
-}
 
-function ask($question){
-  info("\e[1m\x1B[31m{$question}\e[0m\e[0m",false);
-  $h = fopen("php://stdin","r");
-  $answer = fgets($h);
-  fclose($h);
-  return ($answer === "y" . PHP_EOL || $answer === "yes" . PHP_EOL);
-}
-function mount_rd(){
-  verbinfo("Mounting ramdisk.dmg");
-  $try_mount = execute("hdiutil attach ramdisk.dmg 2>&1",1);
-  $mount_point = explode(" ",preg_replace('/\s+/', ' ', $try_mount));
-  unset($mount_point[0]);
-  unset($mount_point[sizeof($mount_point)]);
-  $mount_point = implode(" ",$mount_point);
-  return $mount_point;
-}
-function unmount($mountpoint){
-  return execute("hdiutil detach \"{$mountpoint}\" 2>&1",1);
-}
-function execute($command, $silent = false){
-  verbinfo("Executing {$command}");
-  $h = popen($command . " 2>&1","r");
-  $o = "";
-  while (!feof($h)) {
-    $b = fread($h,1024);
-    $o .= $b;
-    if(!VERBOSE) {
-      fwrite(LOG,$b);
-      if(!$silent){
-        echo $b;
-      }
-    } else {
-      echo $b;
-    }
-  }
-  fclose($h);
-  return $o;
-}
-function get_ipsw_url(){
-  verbinfo("Getting ipsw url from ipsw.me API");
-  $versions = json_decode(file_get_contents("https://api.ipsw.me/v4/device/" . DEVICE . "?type=ipsw"),1)['firmwares'];
-  if(VERBOSE) {
-    var_dump($versions);
-  } else {
-    fwrite(LOG,print_r($versions,1));
-  }
-  $url = "";
-  foreach($versions as $version){
-    if($version['version'] == VERSION){ // lol
-      $url = $version["url"];
-      break;
-    }
-  }
-  if(strlen($url) < 1){die("Couldn't find version " . VERSION . " for " . DEVICE . PHP_EOL);}
-  verbinfo("Got url {$url}");
-  return $url;
-}
-function info($msg,$newline = true){
-  $line = $GLOBALS['argv'][0] . ": {$msg}" . ($newline ? PHP_EOL : "");
-  echo $line;
-  if(!VERBOSE){fwrite(LOG,$line);}
-}
-function verbinfo($msg){
-  if(VERBOSE){
-    info($msg);
-  } else {
-    fwrite(LOG,$msg . PHP_EOL);
-  }
-}
-function pls_install_msg($github_project){
-  return "Dependency missing: Please download, compile (if needed) and install {$github_project} and make sure it's in PATH." . PHP_EOL;
-}
-function is_installed($cmd){
-  verbinfo("Checking for {$cmd}");
-  if(shell_exec("which {$cmd}") === NULL){
-    return false;
-  } else {
-    return true;
-  }
-}
+Log::main()->writeLog("telnet_rd exit");
+
+
 ?>
