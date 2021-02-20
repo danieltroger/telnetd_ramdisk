@@ -144,7 +144,7 @@ function execute($command, $show_output = false){
   return $o;
 }
 
-function get_firmware_data(bool $force_refresh = false): object
+function get_firmware_data(bool $force_refresh = false): stdClass
 {
   $url = 'https://api.ipsw.me/v2.1/firmwares.json/condensed';
   $cache_path = __DIR__ . "/.cache/";
