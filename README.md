@@ -1,4 +1,7 @@
 # telnetd_ramdisk
+
+#### Notice: I've gotten a job and don't have any focus left for this project. I've heard about [ramiel](https://ramiel.app/) which is supposed to work better. Thanks to everyone who used this and contributed, I could never have imagined it to become this popular :) You can of course still give this a try but beware that I'll probably not be able to help you.
+
 ### An automatic telnet ramdisk creator
 
 Remember [ssh_rd by msftguy](https://github.com/msftguy/ssh-rd)? You could simply run it and get a remote shell running on a ramdisk on your iDevice. I built a jailbreak with it. (And opensn0w).
@@ -78,8 +81,6 @@ You can then execute that script by running `./boot_rd_VERSION.sh` with VERSION 
 
 #### Dependencies:
 img4lib, img4tool, ldid2, autodecrypt, kairos, libusbmuxd, Kernel64Patcher, libirecovery and tools preinstalled on macOS (like php, curl, zip, plutil, hdiutil, etc). If you just run the script without them it will give you the github URLs to install them from.
-
-## Please use this shit. Open an issue if you need help. I don't want to have wasted the 2 days this took writing for using it once.
 
 
 -------
