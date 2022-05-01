@@ -305,7 +305,7 @@ if(!file_exists("kernelcache.img4")){
 $ibss = glob("iBSS.*.RELEASE.bin");
 if(sizeof($ibss) == 0){
   Log::writeInfo("Decrypting iBSS");
-  execute("autodecrypt -f iBSS -i " . VERSION . " -d " . DEVICE);
+  execute("bash -c 'mkdir tmpdir && pushd tmpdir && autodecrypt -f iBSS -i " . VERSION . " -d " . DEVICE . " && mv -v * .. && popd && rmdir tmpdir'");
 } else {
   Log::writeVerboseInfo("Some file matching the pattern iBSS.*.RELEASE.bin already exists, skipping iBSS downloading and decrypting");
 }
@@ -318,7 +318,7 @@ if(!file_exists("iBSS.patched")){
 $ibec = glob("iBEC.*.RELEASE.bin");
 if(sizeof($ibec) == 0){
   Log::writeInfo("Decrypting iBEC");
-  execute("autodecrypt -f iBEC -i " . VERSION . " -d " . DEVICE);
+  execute("bash -c 'mkdir tmpdir && pushd tmpdir && autodecrypt -f iBEC -i " . VERSION . " -d " . DEVICE . " && mv -v * .. && popd && rmdir tmpdir'");
 } else {
   Log::writeVerboseInfo("Some file matching the pattern iBEC.*.RELEASE.im4p already exists, skipping iBEC downloading and decrypting");
 }
